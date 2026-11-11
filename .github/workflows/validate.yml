@@ -1,0 +1,43 @@
+# 기사 JSON 검증과 단위 테스트.
+# 매일 올라오는 기사(articles/)나 앱 코드가 바뀌면 실행된다. 실패하면 GitHub가 메일로 알려 준다.
+name: validate
+
+on:
+  push:
+    paths:
+      - 'articles/**'
+      - 'js/**'
+      - 'css/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'vendor/**'
+      - 'icons/**'
+      - 'prompts/**'
+      - 'index.html'
+      - 'sw.js'
+      - 'manifest.webmanifest'
+      - 'package.json'
+      - '.github/workflows/validate.yml'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 기사 JSON 검증
+        run: node tools/validate.mjs --all
+      - name: 단위 테스트
+        run: node --test tests/*.test.mjs

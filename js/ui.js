@@ -51,7 +51,9 @@ export function fill(el, ...children) {
 export function toast(message, { actionLabel, onAction, duration = 3200, kind = 'info' } = {}) {
   const host = document.getElementById('toasts');
   if (!host) return () => {};
-  const el = h('div', { class: `toast toast-${kind}`, role: 'status' }, h('span', { class: 'toast-msg' }, message));
+  // 같은 안내가 이미 떠 있으면 겹쳐 쌓지 않고 새것으로 바꾼다.
+  for (const old of [...host.children]) if (old.dataset.msg === message) old.remove();
+  const el = h('div', { class: `toast toast-${kind}`, role: 'status', dataset: { msg: message } }, h('span', { class: 'toast-msg' }, message));
   let timer;
   const close = () => {
     clearTimeout(timer);
@@ -74,7 +76,7 @@ export function toast(message, { actionLabel, onAction, duration = 3200, kind = 
     );
   }
   host.append(el);
-  while (host.children.length > 3) host.firstElementChild.remove();
+  while (host.children.length > 2) host.firstElementChild.remove();
   timer = setTimeout(close, actionLabel ? Math.max(duration, 5000) : duration);
   return close;
 }

@@ -90,6 +90,9 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* 화면 아래에 고정된 탭에 가려지지 않도록, 자동 스크롤할 때 여유를 둔다 */
+  scroll-padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px) + 16px);
+  scroll-padding-top: 16px;
 }
 
 body {
@@ -414,6 +417,11 @@ button:disabled {
 }
 .icon-btn:hover:not(:disabled) {
   background: var(--accent-soft);
+}
+/* 회색 카드 안에서는 버튼이 묻히지 않게 바탕색을 바꾼다 */
+.ws-card:not(.ws-main):not(.ws-phrase) .icon-btn,
+.summary .icon-btn {
+  background: var(--surface);
 }
 
 .link-btn {
@@ -1169,6 +1177,10 @@ mark {
   justify-content: space-between;
   gap: 12px;
 }
+.quiz-card-row .btn {
+  flex: none;
+  white-space: nowrap;
+}
 .quiz-card .link-btn {
   margin-top: 6px;
 }
@@ -1760,6 +1772,10 @@ mark {
   }
   #banners {
     top: 58px;
+  }
+  html {
+    scroll-padding-top: 74px;
+    scroll-padding-bottom: 16px;
   }
   #view {
     padding-top: 26px;

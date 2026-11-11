@@ -11,7 +11,7 @@
 // "새 버전이 있어요 [새로고침]"이 뜨고, 이전 버전의 저장본은 지워진다.
 
 /* ── 자동 생성 시작 (직접 고치지 마세요) ── */
-const VERSION = '1.0.0-7c29cdca';
+const VERSION = '1.0.0-63a73a84';
 const PRECACHE = [
   'css/app.css',
   'icons/apple-touch-icon.png',

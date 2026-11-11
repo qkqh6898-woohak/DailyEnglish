@@ -1,0 +1,55 @@
+# 화면 스모크 테스트 (Playwright + Chromium).
+# 앱 코드가 바뀔 때만 실행한다. 매일 기사만 올라오는 푸시에서는 돌지 않는다.
+name: smoke
+
+on:
+  push:
+    paths:
+      - 'js/**'
+      - 'css/**'
+      - 'vendor/**'
+      - 'icons/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'index.html'
+      - 'sw.js'
+      - 'manifest.webmanifest'
+      - 'package.json'
+      - '.github/workflows/smoke.yml'
+  pull_request:
+    paths:
+      - 'js/**'
+      - 'css/**'
+      - 'vendor/**'
+      - 'icons/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'index.html'
+      - 'sw.js'
+      - 'manifest.webmanifest'
+      - 'package.json'
+      - '.github/workflows/smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Playwright 설치
+        run: |
+          npm install --no-save playwright@1
+          npx playwright install --with-deps chromium
+      - name: 화면 스모크 테스트
+        run: node --test tests/smoke.spec.mjs

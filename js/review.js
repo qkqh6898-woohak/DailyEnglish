@@ -19,6 +19,7 @@ export async function render(root) {
   let revealed = false;
   let done = 0;
   let lastUndo = null; // { wordBefore, logId }
+  let revealedAt = null; // 뜻을 본 시각. 미리보기 간격과 실제 일정이 어긋나지 않도록 평가 시각으로 쓴다
   let forceAhead = false;
   let disposed = false;
 
@@ -130,7 +131,7 @@ export async function render(root) {
       actions.append(h('button', { type: 'button', class: 'btn btn-primary btn-wide btn-reveal', onclick: reveal }, mode === 'en-ko' ? '뜻 보기' : '정답 보기'));
     } else {
       card.append(h('hr', { class: 'rc-divider' }), h('div', { class: 'rc-back' }, back));
-      const pv = preview(word.card, new Date(), pref('retention'));
+      const pv = preview(word.card, revealedAt, pref('retention'));
       actions.append(
         h(
           'div',
@@ -154,13 +155,15 @@ export async function render(root) {
   function reveal() {
     if (!current || revealed) return;
     revealed = true;
+    revealedAt = new Date();
     showCard();
   }
 
   async function onRate(r) {
     if (!current || !revealed) return;
     const { word } = current;
-    const now = new Date();
+    // 버튼에 보여 준 간격 그대로 일정이 잡히도록, 뜻을 본 시각을 기준으로 삼는다. (오래 켜 두었으면 지금 시각)
+    const now = revealedAt && Date.now() - revealedAt.getTime() < 10 * 60_000 ? revealedAt : new Date();
     const wordBefore = structuredClone(word);
     try {
       const result = rate(word.card, r, now, pref('retention'));
