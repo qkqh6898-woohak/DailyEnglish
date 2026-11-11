@@ -1,0 +1,16 @@
+{
+  "name": "daily-english-reader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "매일 영어 기사 한 편을 읽고, 단어를 눌러 문맥 뜻을 보고, FSRS로 복습하는 개인용 PWA",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "validate": "node tools/validate.mjs --all",
+    "index": "node tools/build-index.mjs",
+    "sw": "node tools/update-sw.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:smoke": "node --test tests/smoke.spec.mjs"
+  }
+}
