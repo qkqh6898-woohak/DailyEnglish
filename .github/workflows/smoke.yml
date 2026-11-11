@@ -43,13 +43,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Playwright 설치
+        # GitHub 러너에는 브라우저에 필요한 시스템 라이브러리가 이미 있으므로 --with-deps(apt 설치)는 쓰지 않는다.
+        # (apt 서버 접속이 막히면 10분 넘게 걸리다 실패한다) 브라우저 내려받기는 한 번 더 시도한다.
         run: |
           npm install --no-save playwright@1
-          npx playwright install --with-deps chromium
+          npx playwright install chromium || (sleep 15 && npx playwright install chromium)
       - name: 화면 스모크 테스트
         run: node --test tests/smoke.spec.mjs
