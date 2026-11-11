@@ -1,0 +1,23 @@
+{
+  "name": "Daily English Reader",
+  "short_name": "DE Reader",
+  "description": "매일 영어 기사 한 편을 읽고, 단어를 눌러 문맥 뜻을 보고, 간격 반복으로 복습하는 영어 학습 앱",
+  "lang": "ko",
+  "dir": "ltr",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f6f3",
+  "theme_color": "#0f766e",
+  "categories": ["education"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "복습", "short_name": "복습", "url": "./#/review", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "단어장", "short_name": "단어장", "url": "./#/vocab", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}

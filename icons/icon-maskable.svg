@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Daily English Reader">
+  <rect width="512" height="512" fill="#0f766e"/>
+  <g transform="translate(256 256) scale(0.76) translate(-256 -264)">
+    <path d="M256 168c-34-26-78-34-128-30-8 1-14 7-14 15v196c0 9 8 16 17 15 44-5 86 2 125 26z" fill="#ffffff"/>
+    <path d="M256 168c34-26 78-34 128-30 8 1 14 7 14 15v196c0 9-8 16-17 15-44-5-86 2-125 26z" fill="#e3fbf7"/>
+    <g fill="#8fd0c8">
+      <rect x="146" y="190" width="78" height="14" rx="7"/>
+      <rect x="146" y="224" width="60" height="14" rx="7"/>
+      <rect x="146" y="258" width="78" height="14" rx="7"/>
+      <rect x="146" y="292" width="48" height="14" rx="7"/>
+      <rect x="288" y="190" width="78" height="14" rx="7"/>
+      <rect x="288" y="262" width="60" height="14" rx="7"/>
+      <rect x="288" y="296" width="78" height="14" rx="7"/>
+    </g>
+    <rect x="284" y="218" width="72" height="28" rx="9" fill="#fbbf24"/>
+  </g>
+</svg>
