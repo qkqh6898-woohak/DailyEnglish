@@ -1,6 +1,7 @@
 {
-  "updated": "2026-11-11T18:24:52+09:00",
+  "updated": "2026-11-12T00:14:46+09:00",
   "items": [
+    {"date":"2026-11-12","topic":"economy","level":"B2","title_en":"Hot US Inflation Report Puts a December Rate Hike in Play","title_ko":"예상 웃돈 미국 물가, 12월 금리 인상 가능성 키웠다","path":"articles/2026/11/2026-11-12.json"},
     {"date":"2026-11-10","topic":"economy","level":"B2","title_en":"Bank of England Raises Rates for the First Time Since 2023","title_ko":"영란은행, 2023년 이후 첫 금리 인상","path":"articles/2026/11/2026-11-10.json"},
     {"date":"2026-11-09","topic":"battery","level":"B2","title_en":"Ford Data Suggests EV Batteries Age Better Than Drivers Fear","title_ko":"포드 데이터 “전기차 배터리, 걱정보다 오래 버틴다”","path":"articles/2026/11/2026-11-09.json"},
     {"date":"2026-11-07","topic":"battery","level":"C1","title_en":"Chinese Battery Makers Tighten Their Grip on the Global Market","title_ko":"중국 배터리 업체들, 세계 시장 장악력 더 키웠다","path":"articles/2026/11/2026-11-07.json"}
