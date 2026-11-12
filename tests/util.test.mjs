@@ -179,3 +179,12 @@ test('저장소에 개인 정보(메일 주소)가 들어 있지 않다', async 
     assert.deepEqual(hits, [], `${f} 에 메일 주소처럼 보이는 글이 있다`);
   }
 });
+
+test('index.html 은 모든 모듈을 미리 받도록(modulepreload) 알려 준다 (첫 화면 속도)', async () => {
+  const html = await readFile(join(ROOT, 'index.html'), 'utf8');
+  const preloaded = new Set([...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map((m) => m[1]));
+  const modules = (await readdir(join(ROOT, 'js'))).filter((n) => n.endsWith('.js') && n !== 'boot.js').map((n) => `js/${n}`);
+  for (const m of [...modules, 'vendor/ts-fsrs.umd.js']) assert.ok(preloaded.has(m), `${m} 가 modulepreload 목록에 없다`);
+  for (const m of preloaded) assert.ok(m === 'vendor/ts-fsrs.umd.js' || modules.includes(m), `없는 파일을 미리 받는다: ${m}`);
+  assert.doesNotMatch(html, /<script src="vendor\//, 'FSRS는 srs.js가 모듈로 불러온다 (페이지 해석을 막지 않도록)');
+});

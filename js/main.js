@@ -1,6 +1,7 @@
 // main.js — 앱 시작, 해시 라우터(#/today 등), 하단 탭, 안내 띠(새 버전·설치·오프라인)
 
 import * as archive from './archive.js';
+import { warmIndex } from './articles.js';
 import { getAll, openDB, requestPersist } from './db.js';
 import { loadPrefs, pref, setPref } from './prefs.js';
 import { applyUpdate, canInstall, isIOS, isStandalone, promptInstall, registerSW, updateWaiting } from './pwa.js';
@@ -112,7 +113,10 @@ function banner(id, content, actions = []) {
 }
 
 function showUpdateBanner() {
-  banner('banner-update', '새 버전이 있어요.', [h('button', { type: 'button', class: 'btn btn-small btn-primary', onclick: () => applyUpdate() }, '새로고침')]);
+  const el = banner('banner-update', '새 버전이 있어요.', [
+    h('button', { type: 'button', class: 'btn btn-small btn-primary', onclick: () => applyUpdate() }, '새로고침'),
+    h('button', { type: 'button', class: 'btn btn-small', onclick: () => el.remove() }, '나중에'),
+  ]);
 }
 
 const dismissedRecently = (key, days) => {
@@ -183,6 +187,7 @@ function paintOnline() {
 // ── 시작 ─────────────────────────────────────────────────────────────
 
 async function init() {
+  warmIndex(); // 기사 목록은 저장소를 여는 동안 미리 받기 시작한다
   try {
     await openDB();
     await loadPrefs();

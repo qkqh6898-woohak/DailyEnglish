@@ -16,6 +16,8 @@ const INDEX_MAX_AGE_MS = 5 * 60_000;
 const PREFETCH_COUNT = 5;
 
 let memo = null; // { items, updated, offline, loadedAt }
+let indexInflight = null; // 받아 오는 중인 목록 요청 (같은 시점의 요청은 하나로 합친다)
+const articleInflight = new Map(); // 날짜 → 받아 오는 중인 기사 요청
 
 async function fetchJson(url, { timeout = FETCH_TIMEOUT_MS, cache = 'no-cache' } = {}) {
   const ctrl = new AbortController();
@@ -47,18 +49,24 @@ function cleanItems(raw) {
 
 /**
  * 기사 목록(최신순).
- * @param {{refresh?: boolean}} [opts] refresh가 true면 메모리에 있어도 다시 받아 온다.
+ * @param {{refresh?: boolean, maxAge?: number}} [opts]
+ *   refresh가 true면 메모리에 있어도 다시 받아 온다. maxAge(ms)보다 오래된 목록도 다시 받는다.
  * @returns {Promise<{items: object[], updated: string|null, offline: boolean}>}
  *   offline이 true면 네트워크에 실패해 기기에 저장된 목록을 쓴 것이다.
  */
-export async function getIndex({ refresh = false } = {}) {
-  if (memo && !refresh && Date.now() - memo.loadedAt < INDEX_MAX_AGE_MS) return memo;
+export function getIndex({ refresh = false, maxAge = INDEX_MAX_AGE_MS } = {}) {
+  if (memo && !refresh && Date.now() - memo.loadedAt < maxAge) return Promise.resolve(memo);
+  if (!indexInflight) indexInflight = loadIndex().finally(() => (indexInflight = null));
+  return indexInflight;
+}
+
+async function loadIndex() {
   try {
     const fresh = cleanItems(await fetchJson(INDEX_URL));
     if (!fresh) throw new Error('목록 형식이 올바르지 않아요.');
     memo = { ...fresh, offline: false, loadedAt: Date.now() };
     setMeta('index', fresh).catch(() => {});
-    prefetchRecent(fresh.items);
+    schedulePrefetch(fresh.items);
     return memo;
   } catch (e) {
     const saved = cleanItems(await getMeta('index').catch(() => null));
@@ -83,11 +91,17 @@ export async function getIndex({ refresh = false } = {}) {
   }
 }
 
-async function downloadArticle(date, path) {
-  const article = await fetchJson(path ?? articlePath(date), { cache: 'default' });
-  if (!isRenderable(article) || article.date !== date) throw new Error('기사 형식이 올바르지 않아요.');
-  await put('articleCache', { date, article, cachedAt: new Date().toISOString() }).catch(() => {});
-  return article;
+/** 기사를 내려받아 기기에 사본을 저장한다. 같은 날짜를 받는 중이면 그 요청을 같이 쓴다. */
+function downloadArticle(date, path) {
+  if (articleInflight.has(date)) return articleInflight.get(date);
+  const job = (async () => {
+    const article = await fetchJson(path ?? articlePath(date), { cache: 'default' });
+    if (!isRenderable(article) || article.date !== date) throw new Error('기사 형식이 올바르지 않아요.');
+    await put('articleCache', { date, article, cachedAt: new Date().toISOString() }).catch(() => {});
+    return article;
+  })().finally(() => articleInflight.delete(date));
+  articleInflight.set(date, job);
+  return job;
 }
 
 const refreshing = new Set();
@@ -122,7 +136,21 @@ export async function getArticle(date, path) {
   }
 }
 
-/** 최근 기사 몇 편을 미리 내려받아, 열어 보지 않았어도 오프라인에서 볼 수 있게 한다. */
+let prefetchTimer = null;
+
+/**
+ * 최근 기사 몇 편을 미리 내려받아, 열어 보지 않았어도 오프라인에서 볼 수 있게 한다.
+ * 첫 화면의 기사와 대역폭을 나눠 쓰지 않도록, 화면을 그리고 한가해진 뒤에 받는다.
+ */
+function schedulePrefetch(items) {
+  clearTimeout(prefetchTimer);
+  prefetchTimer = setTimeout(() => {
+    const run = () => prefetchRecent(items);
+    if ('requestIdleCallback' in globalThis) requestIdleCallback(run, { timeout: 5000 });
+    else run();
+  }, 2000);
+}
+
 async function prefetchRecent(items) {
   try {
     const have = new Set((await getAll('articleCache')).map((c) => c.date));
@@ -134,6 +162,11 @@ async function prefetchRecent(items) {
   }
 }
 
+/** 앱이 켜지자마자 목록을 받기 시작한다. (저장소 열기·화면 준비와 동시에 진행) */
+export function warmIndex() {
+  getIndex({ refresh: true }).catch(() => {});
+}
+
 /**
  * "오늘" 화면에 보여 줄 기사.
  * 오늘 기사가 있으면 그것을, 없거나 깨졌으면 그 이전의 가장 최근 기사를 고른다.
@@ -141,7 +174,8 @@ async function prefetchRecent(items) {
  */
 export async function resolveToday(now = new Date()) {
   const today = kstDate(now);
-  const index = await getIndex({ refresh: true });
+  // 앱 시작 때 warmIndex()가 막 받아 둔 목록이면 그대로 쓰고, 아니면 새로 받는다.
+  const index = await getIndex({ maxAge: 15_000 });
   const past = index.items.filter((it) => it.date <= today);
   const candidates = past.length ? past : index.items;
   if (!candidates.length) throw new Error('아직 올라온 기사가 없어요.');

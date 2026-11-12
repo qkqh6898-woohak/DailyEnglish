@@ -8,7 +8,7 @@
   --surface-2: #eef0ec;
   --text: #1b1f1d;
   --text-2: #56605c;
-  --text-3: #7c8682;
+  --text-3: #5f6965;
   --border: #dfe3dd;
   --accent: #0f766e;
   --accent-strong: #0b5f58;
@@ -29,7 +29,7 @@
   --economy: #1d4ed8;
   --economy-soft: #dbeafe;
   --again: #b91c1c;
-  --hard: #b45309;
+  --hard: #9a4a0a;
   --good: #15803d;
   --easy: #1d4ed8;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 14px rgb(0 0 0 / 0.05);
@@ -46,7 +46,7 @@
   --surface-2: #232d2a;
   --text: #e8ecea;
   --text-2: #aab4b0;
-  --text-3: #86918d;
+  --text-3: #9aa5a1;
   --border: #2f3a37;
   --accent: #2dd4bf;
   --accent-strong: #5eead4;
@@ -189,12 +189,20 @@ button:disabled {
   min-height: calc(100dvh - var(--tab-h));
 }
 
+/* 안내 띠는 화면 위에 띄운다. 본문 흐름에 끼우면 늦게 나타날 때 화면 전체가 밀린다(CLS). */
 #banners {
-  position: sticky;
-  top: 0;
-  z-index: 30;
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 0;
+  right: 0;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   max-width: var(--max-w);
   margin: 0 auto;
+  padding: 0 12px;
+  pointer-events: none;
 }
 
 .banner {
@@ -202,8 +210,8 @@ button:disabled {
   align-items: center;
   gap: 10px;
   justify-content: space-between;
-  margin: 8px 12px 0;
   padding: 10px 12px;
+  pointer-events: auto;
   background: var(--info-soft);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -276,6 +284,9 @@ button:disabled {
   line-height: 20px;
   text-align: center;
 }
+:root[data-theme='dark'] .tab-badge {
+  color: #1a0505;
+}
 
 .offline-chip {
   position: fixed;
@@ -327,8 +338,8 @@ button:disabled {
   background: none;
   color: #5eead4;
   font-weight: 700;
-  padding: 6px 4px;
-  min-height: 32px;
+  padding: 0 8px;
+  min-height: 48px;
 }
 
 .noscript {
@@ -345,8 +356,8 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 44px;
-  padding: 9px 16px;
+  min-height: 48px;
+  padding: 10px 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
@@ -388,8 +399,8 @@ button:disabled {
   width: 100%;
 }
 .btn-small {
-  min-height: 36px;
-  padding: 6px 12px;
+  min-height: 48px;
+  padding: 8px 14px;
   border-radius: 10px;
   font-size: 14px;
 }
@@ -398,7 +409,7 @@ button:disabled {
   pointer-events: none;
 }
 .icon-only {
-  min-width: 44px;
+  min-width: 48px;
   padding: 9px;
 }
 
@@ -406,8 +417,8 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   flex: none;
   border: 0;
   border-radius: 50%;
@@ -427,7 +438,7 @@ button:disabled {
 .link-btn {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
+  min-height: 48px;
   padding: 4px 2px;
   border: 0;
   background: none;
@@ -437,7 +448,7 @@ button:disabled {
 }
 
 .chip-btn {
-  min-height: 36px;
+  min-height: 48px;
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -448,7 +459,7 @@ button:disabled {
 
 .star-btn {
   flex: none;
-  min-height: 40px;
+  min-height: 48px;
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -519,7 +530,7 @@ button:disabled {
 
 .hint {
   color: var(--text-3);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -557,7 +568,7 @@ button:disabled {
 .back-link {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
+  min-height: 48px;
   border: 0;
   background: none;
   padding: 0;
@@ -615,7 +626,8 @@ button:disabled {
   flex-wrap: wrap;
 }
 .chip {
-  min-height: 38px;
+  min-height: 48px;
+  min-width: 48px;
   padding: 6px 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -637,7 +649,8 @@ button:disabled {
   background: var(--surface-2);
 }
 .seg {
-  min-height: 38px;
+  min-height: 48px;
+  min-width: 48px;
   padding: 6px 13px;
   border: 0;
   border-radius: 9px;
@@ -655,7 +668,7 @@ button:disabled {
 
 .input,
 .select {
-  min-height: 44px;
+  min-height: 48px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -694,11 +707,14 @@ button:disabled {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
-  width: 52px;
-  height: 32px;
+  box-sizing: border-box;
+  width: 68px;
+  height: 48px;
   margin: 0;
+  border: 8px solid transparent;
+  background-clip: padding-box;
   border-radius: 999px;
-  background: var(--border);
+  background-color: var(--border);
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -715,7 +731,7 @@ button:disabled {
   transition: transform 0.15s;
 }
 .switch:checked {
-  background: var(--accent);
+  background-color: var(--accent);
 }
 .switch:checked::after {
   transform: translateX(20px);
@@ -742,9 +758,28 @@ progress::-moz-progress-bar {
   background: var(--accent);
 }
 
+summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 48px;
+  list-style: none;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+summary::before {
+  content: '▸';
+  flex: none;
+  font-size: 0.9em;
+}
+details[open] > summary::before {
+  content: '▾';
+}
+
 mark {
   background: var(--hl);
-  color: inherit;
+  color: var(--text);
   border-radius: 4px;
   padding: 0 2px;
 }
@@ -823,19 +858,19 @@ mark {
 }
 .sheet-close {
   position: absolute;
-  top: 10px;
-  right: 12px;
-  width: 36px;
-  height: 36px;
+  top: 4px;
+  right: 6px;
+  width: 48px;
+  height: 48px;
   border: 0;
   border-radius: 50%;
-  background: var(--surface-2);
+  background: radial-gradient(circle, var(--surface-2) 0 18px, transparent 18.5px);
   color: var(--text-2);
   font-size: 15px;
 }
 .sheet-title {
   font-size: 19px;
-  padding-right: 44px;
+  padding-right: 52px;
 }
 
 .word-sheet {
@@ -854,7 +889,7 @@ mark {
 }
 .ws-phrase {
   background: var(--accent-soft);
-  margin-right: 44px;
+  margin-right: 52px;
 }
 .ws-label {
   margin-bottom: 4px;
@@ -868,7 +903,7 @@ mark {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding-right: 44px;
+  padding-right: 52px;
 }
 .ws-phrase .ws-head {
   padding-right: 0;
@@ -905,9 +940,11 @@ mark {
   font-size: 14px;
 }
 .icon-btn-small {
-  width: 32px;
-  height: 32px;
+  width: 48px;
+  height: 48px;
+  margin: -8px 0;
   font-size: 14px;
+  background: radial-gradient(circle, var(--surface-2) 0 16px, transparent 16.5px);
 }
 .ws-ex,
 .ws-sent {
@@ -1034,7 +1071,7 @@ mark {
 }
 .play-btn {
   flex: 1;
-  min-width: 150px;
+  min-width: 0;
 }
 .rate {
   display: flex;
@@ -1044,7 +1081,7 @@ mark {
   font-size: 14px;
 }
 .rate-select {
-  min-height: 44px;
+  min-height: 48px;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1056,7 +1093,7 @@ mark {
 
 .summary {
   margin-top: 12px;
-  padding: 10px 14px;
+  padding: 0 14px;
   border-radius: 12px;
   background: var(--surface-2);
   font-size: 15px;
@@ -1065,10 +1102,10 @@ mark {
   cursor: pointer;
   font-weight: 600;
   color: var(--text-2);
-  min-height: 28px;
 }
 .summary ol {
-  margin-top: 8px;
+  margin-top: 0;
+  padding-bottom: 12px;
   padding-left: 20px;
   list-style: decimal;
 }
@@ -1190,8 +1227,10 @@ mark {
   padding-left: 18px;
   list-style: disc;
 }
-.sources li {
-  padding: 3px 0;
+.sources a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
 }
 
 .read-sentinel {
@@ -1385,7 +1424,6 @@ mark {
 }
 .rating-int {
   font-size: 13px;
-  opacity: 0.85;
 }
 .rating-again {
   color: var(--again);
@@ -1575,6 +1613,11 @@ mark {
 .wrong-list .card {
   margin-top: 12px;
 }
+.wrong-meta a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+}
 .wrong-meta {
   display: flex;
   align-items: center;
@@ -1590,7 +1633,6 @@ mark {
   cursor: pointer;
   color: var(--accent);
   font-weight: 600;
-  min-height: 32px;
 }
 
 /* ── 지난 기사 ─────────────────────────────────────────────────────── */
@@ -1660,6 +1702,7 @@ mark {
 }
 .set-label {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   font-weight: 600;
   min-width: 0;
@@ -1685,6 +1728,7 @@ mark {
 }
 .range input {
   width: 150px;
+  height: 48px;
   accent-color: var(--accent);
 }
 .range-value {
@@ -1695,7 +1739,6 @@ mark {
 .howto summary {
   cursor: pointer;
   font-weight: 600;
-  min-height: 32px;
 }
 .howto h3 {
   margin-top: 12px;
@@ -1771,7 +1814,7 @@ mark {
     position: static;
   }
   #banners {
-    top: 58px;
+    top: 66px;
   }
   html {
     scroll-padding-top: 74px;

@@ -1,8 +1,10 @@
 // srs.js — 간격 반복(FSRS) 래퍼. vendor/ts-fsrs.umd.js 가 만든 전역 FSRS를 쓴다.
 // 화면·DB와 무관한 순수 함수라서 Node 테스트에서도 그대로 돌아간다.
+// (vendor/ts-fsrs.umd.js 는 아래 import로 함께 불러온다)
 //
 // 카드는 JSON으로 저장하기 좋은 모양(날짜는 ISO 문자열)으로만 주고받는다.
 
+import '../vendor/ts-fsrs.umd.js'; // 전역 FSRS를 만든다 (UMD 파일을 모듈로 불러와도 globalThis에 붙는다)
 import { addDays, formatInterval, kstDate } from './util.js';
 
 export const Rating = Object.freeze({ Again: 1, Hard: 2, Good: 3, Easy: 4 });

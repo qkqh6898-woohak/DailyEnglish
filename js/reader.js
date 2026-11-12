@@ -350,7 +350,8 @@ export async function render(root, { date } = {}) {
   if (!isTodayView && article.date !== today) {
     top.append(h('p', { class: 'notice notice-plain' }, h('a', { href: '#/today' }, '← 오늘의 기사로')));
   }
-  if (isTodayView) backupReminder().then((el) => el && top.append(el));
+  const reminder = isTodayView ? await backupReminder() : null; // 그리기 전에 넣어야 화면이 밀리지 않는다
+  if (reminder) top.append(reminder);
 
   clear(root).append(h('article', { class: 'article', dataset: { date: article.date } }, top, header, player, summary, paras, keySection, part5Card, weeklyCard, sources, sentinel, nav));
   document.title = `${article.title.en} — Daily English Reader`;

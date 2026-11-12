@@ -24,6 +24,26 @@
 
     <link rel="stylesheet" href="css/app.css" />
     <script src="js/boot.js"></script>
+    <!-- 모듈을 계단식이 아니라 한꺼번에 받도록 미리 알려 준다 (첫 화면 속도) -->
+    <link rel="modulepreload" href="js/main.js" />
+    <link rel="modulepreload" href="js/archive.js" />
+    <link rel="modulepreload" href="js/articles.js" />
+    <link rel="modulepreload" href="js/db.js" />
+    <link rel="modulepreload" href="js/popup.js" />
+    <link rel="modulepreload" href="js/prefs.js" />
+    <link rel="modulepreload" href="js/pwa.js" />
+    <link rel="modulepreload" href="js/quiz.js" />
+    <link rel="modulepreload" href="js/reader.js" />
+    <link rel="modulepreload" href="js/review.js" />
+    <link rel="modulepreload" href="js/schema.js" />
+    <link rel="modulepreload" href="js/settings.js" />
+    <link rel="modulepreload" href="js/srs.js" />
+    <link rel="modulepreload" href="js/tts.js" />
+    <link rel="modulepreload" href="js/ui.js" />
+    <link rel="modulepreload" href="js/util.js" />
+    <link rel="modulepreload" href="js/version.js" />
+    <link rel="modulepreload" href="js/vocab.js" />
+    <link rel="modulepreload" href="vendor/ts-fsrs.umd.js" />
   </head>
   <body>
     <a class="skip-link" href="#view">본문으로 건너뛰기</a>
@@ -51,7 +71,6 @@
       <p class="noscript">Daily English Reader를 쓰려면 브라우저의 자바스크립트를 켜 주세요.</p>
     </noscript>
 
-    <script src="vendor/ts-fsrs.umd.js"></script>
     <script type="module" src="js/main.js"></script>
   </body>
 </html>

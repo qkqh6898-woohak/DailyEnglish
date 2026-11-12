@@ -6,8 +6,10 @@
 //   node tools/serve.mjs --port 9000
 //
 // GitHub Pages와 똑같이 /DailyEnglish/ 하위 경로로 제공해서, 상대 경로가 맞는지 함께 확인한다.
+// 글자 파일(HTML·CSS·JS·JSON)은 GitHub Pages처럼 gzip으로 압축해서 보낸다. (성능 측정이 실제와 비슷해지도록)
 
 import { createReadStream } from 'node:fs';
+import { createGzip } from 'node:zlib';
 import { stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, normalize, sep } from 'node:path';
@@ -51,13 +53,16 @@ export function startServer({ port = 8080, base = '/DailyEnglish/', root = ROOT,
       if (rel.split('/').some((part) => part.startsWith('.'))) return send(404, 'Not found');
       const info = await stat(file).catch(() => null);
       if (!info || !info.isFile()) return send(404, 'Not found');
+      const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
+      const gzip = /^(text\/|application\/(json|manifest\+json))|svg/.test(type) && /\bgzip\b/.test(req.headers['accept-encoding'] ?? '');
       res.writeHead(200, {
-        'Content-Type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-        'Content-Length': info.size,
+        'Content-Type': type,
+        ...(gzip ? { 'Content-Encoding': 'gzip', Vary: 'Accept-Encoding' } : { 'Content-Length': info.size }),
         'Cache-Control': 'no-cache',
       });
       if (req.method === 'HEAD') return res.end();
-      createReadStream(file).pipe(res);
+      if (gzip) createReadStream(file).pipe(createGzip()).pipe(res);
+      else createReadStream(file).pipe(res);
     } catch (e) {
       send(500, 'Server error: ' + e.message);
     }

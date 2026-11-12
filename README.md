@@ -168,6 +168,21 @@ node --test tests/smoke.spec.mjs
 실제 브라우저(Chromium)로 앱을 열어 기사 → 단어 탭 → 저장 → 복습 → 퀴즈 → 백업 → 오프라인 → 새 버전 알림까지 확인합니다.
 `playwright` 가 설치되어 있어야 하며, 없으면 건너뜁니다. (`npm install --no-save playwright && npx playwright install chromium`)
 
+### 품질 기준 (PWA 점검표)
+
+| 항목 | 기준 | 현재 (Lighthouse 모바일, gzip) |
+|---|---|---|
+| 첫 화면 표시 LCP | 2.5초 이내 | 2.0초 |
+| 화면 밀림 CLS | 0.1 이하 | 0 |
+| 터치 반응 INP | 0.2초 이내 | 가장 느린 동작 56ms (CPU 4배 느리게) |
+| 성능 / 접근성 / 권장사항 / SEO | — | 99 / 100 / 100 / 100 |
+| 터치 영역 | 48px 이상 | 모든 버튼·입력칸 (기사 속 단어 글자는 제외) |
+| 글자 색 대비 | 4.5:1 이상 | 라이트·다크 모든 화면 |
+
+터치 영역 48px과 색 대비는 화면 스모크 테스트가 매번 화면마다 확인합니다.
+Lighthouse로 직접 재려면 개발 서버를 띄운 뒤(gzip 압축을 해서 GitHub Pages와 비슷하게 잽니다) 크롬 개발자도구 → Lighthouse에서
+`http://localhost:8080/DailyEnglish/` 를 모바일로 측정합니다.
+
 ### 앱 코드를 고친 뒤 꼭 할 일
 
 ```bash

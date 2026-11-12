@@ -6,7 +6,7 @@
 // 브라우저의 시간대를 일부러 뉴욕으로 두어, 날짜 계산이 항상 한국 시간(KST) 기준인지도 함께 본다.
 
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -94,13 +94,32 @@ function removeSpeech() {
   window.SpeechSynthesisUtterance = undefined;
 }
 
+const APP_FILES = ['index.html', 'manifest.webmanifest', 'sw.js', 'css', 'js', 'vendor', 'icons'];
+const SAMPLE_DATES = ['2026-11-07', '2026-11-09', '2026-11-10'];
+
+/**
+ * 테스트용 사이트 사본을 만든다. 기사는 샘플 3편만 넣는다.
+ * (예약 작업이 매일 기사를 더해도 테스트 결과가 바뀌지 않게 한다)
+ */
+async function makeSite(dir) {
+  for (const name of APP_FILES) await cp(join(ROOT, name), join(dir, name), { recursive: true });
+  await mkdir(join(dir, 'articles/2026/11'), { recursive: true });
+  for (const d of SAMPLE_DATES) await cp(join(ROOT, `articles/2026/11/${d}.json`), join(dir, `articles/2026/11/${d}.json`));
+  const index = JSON.parse(await readFile(join(ROOT, 'articles/index.json'), 'utf8'));
+  index.items = index.items.filter((it) => SAMPLE_DATES.includes(it.date));
+  await writeFile(join(dir, 'articles/index.json'), JSON.stringify(index, null, 2));
+}
+
 describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 'playwright가 설치되어 있지 않아 건너뜁니다.' }, () => {
   let server;
   let browser;
+  let siteDir;
   const contexts = [];
 
   before(async () => {
-    server = await startServer({ port: 0, quiet: true });
+    siteDir = await mkdtemp(join(tmpdir(), 'de-smoke-'));
+    await makeSite(siteDir);
+    server = await startServer({ port: 0, quiet: true, root: siteDir });
     browser = await chromium.launch();
   });
 
@@ -108,13 +127,14 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
     await Promise.all(contexts.map((c) => c.close().catch(() => {})));
     await browser?.close();
     await server?.close();
+    if (siteDir) await rm(siteDir, { recursive: true, force: true });
   });
 
   /**
    * 새 브라우저(빈 저장소)로 앱을 연다.
    * @returns {Promise<{ctx, page, problems: string[]}>} problems에는 콘솔 오류·예외가 쌓인다.
    */
-  async function open({ viewport = MOBILE, time = WED_NOON, speech = 'fake', serviceWorkers = 'block', hash = '', userAgent, baseUrl, setup } = {}) {
+  async function open({ viewport = MOBILE, time = WED_NOON, speech = 'fake', serviceWorkers = 'block', hash = '', userAgent, baseUrl, setup, reducedMotion } = {}) {
     const mobile = viewport.width < 700;
     const ctx = await browser.newContext({
       viewport,
@@ -125,6 +145,7 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
       timezoneId: 'America/New_York',
       serviceWorkers,
       acceptDownloads: true,
+      ...(reducedMotion ? { reducedMotion } : {}),
       ...(userAgent ? { userAgent } : {}),
     });
     contexts.push(ctx);
@@ -1063,37 +1084,175 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
     assert.deepEqual(problems, []);
   });
 
-  test('작은 폰(360×640)에서도 넘치는 화면이 없고, 누르는 곳은 44px 이상이다', async () => {
-    const { page, problems } = await open({ viewport: SMALL });
-    await page.waitForSelector('.article');
+  /** 48px보다 작은 터치 대상 (문장 속 글자 링크와 기사 단어는 제외) */
+  const smallTargets = (page, rootSel) =>
+    page.evaluate((rootSel) => {
+      const roots = [...document.querySelectorAll(rootSel)];
+      const out = [];
+      for (const root of roots) {
+        for (const el of root.querySelectorAll('button, a, select, input:not([type=hidden]), summary, [role=button]')) {
+          if (el.offsetParent === null && getComputedStyle(el).position !== 'fixed') continue;
+          if (el.matches('.skip-link')) continue;
+          if (el.matches('a') && getComputedStyle(el).display === 'inline') continue; // 문장 속 링크
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          if (r.height < 48 || r.width < 48) out.push({ el: (el.className || el.tagName) + ' "' + el.textContent.trim().slice(0, 16) + '"', w: Math.round(r.width), h: Math.round(r.height) });
+        }
+      }
+      return out;
+    }, rootSel);
+
+  /** 화면의 애니메이션(창이 올라오는 효과 등)이 끝날 때까지 기다린다 */
+  const settle = (page) => page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running'));
+
+  /** 대비가 모자란 글자 (일반 글자 4.5:1, 큰 글자 3:1). 비활성 요소는 제외 */
+  const lowContrast = async (page, rootSel) => {
+    await settle(page);
+    return page.evaluate((rootSel) => {
+      const parse = (c) => {
+        const m = c.match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+        return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+      };
+      const over = (top, under) => {
+        const a = top.a + under.a * (1 - top.a);
+        if (a === 0) return { r: 0, g: 0, b: 0, a: 0 };
+        const mix = (k) => (top[k] * top.a + under[k] * under.a * (1 - top.a)) / a;
+        return { r: mix('r'), g: mix('g'), b: mix('b'), a };
+      };
+      const lum = ({ r, g, b }) => {
+        const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      };
+      const bgOf = (el) => {
+        const layers = [];
+        for (let n = el; n; n = n.parentElement) {
+          const c = parse(getComputedStyle(n).backgroundColor);
+          if (c && c.a > 0) {
+            layers.push(c);
+            if (c.a >= 1) break;
+          }
+        }
+        let bg = parse(getComputedStyle(document.body).backgroundColor);
+        for (const layer of layers.reverse()) bg = over(layer, bg);
+        return bg;
+      };
+      const out = [];
+      for (const root of document.querySelectorAll(rootSel)) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const seen = new Set();
+        while (walker.nextNode()) {
+          const el = walker.currentNode.parentElement;
+          if (!el || seen.has(el) || !walker.currentNode.textContent.trim()) continue;
+          seen.add(el);
+          if (!/[A-Za-z0-9가-힣]/.test(walker.currentNode.textContent)) continue; // 아이콘·기호만 있는 글자
+          if (el.closest(':disabled, [aria-disabled="true"], [hidden], option, select')) continue;
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          const st = getComputedStyle(el);
+          if (st.visibility === 'hidden') continue;
+          let opacity = 1;
+          for (let n = el; n; n = n.parentElement) opacity *= Number(getComputedStyle(n).opacity);
+          const bg = bgOf(el);
+          const fg0 = parse(st.color);
+          const fg = over({ ...fg0, a: fg0.a * opacity }, bg);
+          const [hi, lo] = [lum(fg), lum(bg)].sort((x, y) => y - x);
+          const ratio = (hi + 0.05) / (lo + 0.05);
+          const size = parseFloat(st.fontSize);
+          const large = size >= 24 || (size >= 18.66 && Number(st.fontWeight) >= 700);
+          if (ratio < (large ? 3 : 4.5) - 0.01) out.push({ text: walker.currentNode.textContent.trim().slice(0, 24), ratio: Math.round(ratio * 100) / 100, color: st.color, cls: el.className });
+        }
+      }
+      return out;
+    }, rootSel);
+  };
+
+  const SCREENS = [
+    ['#/today', '.article'],
+    ['#/vocab', '.vocab-item'],
+    ['#/review', '.review-card'],
+    ['#/quiz/2026-11-10', '.choice'],
+    ['#/quiz/wrong', '.quiz'],
+    ['#/archive', '.archive-item'],
+    ['#/settings', '.settings'],
+    ['#/article/2026-11-07', '.article[data-date="2026-11-07"]'],
+  ];
+
+  /** 단어 저장 · 퀴즈 1문제 틀리기 · 복습 뜻 보기까지 해서 화면 요소가 다 나오게 한다 */
+  async function fillSomeData(page) {
     await saveFromArticle(page, 'stronger-than-expected');
     await saveFromArticle(page, 'curve', { phrase: true });
-    for (const [hash, sel] of [
-      ['#/today', '.article'],
-      ['#/vocab', '.vocab-item'],
-      ['#/review', '.review-card'],
-      ['#/quiz/2026-11-10', '.choice'],
-      ['#/quiz/wrong', '.quiz'],
-      ['#/archive', '.archive-item'],
-      ['#/settings', '.settings'],
-      ['#/article/2026-11-07', '.article[data-date="2026-11-07"]'],
-    ]) {
+    await go(page, '#/quiz/2026-11-10', '.choice');
+    await page.locator('.choice').first().click(); // 1번 정답은 B → 일부러 틀림
+    await go(page, '#/today', '.article');
+  }
+
+  test('작은 폰(360×640)에서도 넘치는 화면이 없고, 누르는 곳은 48px 이상이다', async () => {
+    const { page, problems } = await open({ viewport: SMALL });
+    await page.waitForSelector('.article');
+    await fillSomeData(page);
+    for (const [hash, sel] of SCREENS) {
       await go(page, hash, sel);
       await noOverflow(page, `360px ${hash}`);
-      const small = await page.evaluate(() =>
-        [...document.querySelectorAll('#view .btn, #view .choice, #view .rating, #tabs a')]
-          .filter((el) => el.offsetParent !== null)
-          .map((el) => ({ text: el.textContent.trim().slice(0, 20), h: Math.round(el.getBoundingClientRect().height) }))
-          .filter((x) => x.h < 44 && !/btn-small/.test(x.text)),
-      );
-      assert.deepEqual(small, [], `${hash}: 44px보다 낮은 버튼`);
+      assert.deepEqual(await smallTargets(page, '#view, #tabs, #banners'), [], `${hash}: 48px보다 작은 터치 대상`);
     }
+    // 열리는 창들
+    await go(page, '#/today', '.article');
+    await page.locator('.w', { hasText: /^curve$/ }).click();
+    await page.locator('.sheet').waitFor();
+    assert.deepEqual(await smallTargets(page, '.sheet'), [], '단어 뜻 창');
+    await page.keyboard.press('Escape');
+    await go(page, '#/vocab', '.vocab-item');
+    await page.locator('button', { hasText: '직접 추가' }).click();
+    await page.locator('.sheet form').waitFor();
+    assert.deepEqual(await smallTargets(page, '.sheet'), [], '직접 추가 창');
+    await page.keyboard.press('Escape');
     await go(page, '#/review', '.review-card');
     await page.keyboard.press('Space');
     await page.locator('.ratings').waitFor();
     await noOverflow(page, '360px 복습 평가 버튼');
+    assert.deepEqual(await smallTargets(page, '#view'), [], '복습 평가 버튼');
+    await go(page, '#/quiz/2026-11-09', '.choice');
+    await page.locator('.choice').first().click();
+    assert.deepEqual(await smallTargets(page, '#view'), [], '퀴즈 해설');
     assert.deepEqual(problems, []);
   });
+
+  for (const theme of ['light', 'dark']) {
+    test(`글자 색 대비가 4.5:1 이상이다 (${theme === 'light' ? '라이트' : '다크'} 모드, 모든 화면)`, async () => {
+      // 창이 올라오는 애니메이션 도중에 재지 않도록 움직임을 끈다
+      const { page, problems } = await open({ reducedMotion: 'reduce', setup: (p) => p.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' }) });
+      await page.waitForSelector('.article');
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), theme);
+      await fillSomeData(page);
+      for (const [hash, sel] of SCREENS) {
+        await go(page, hash, sel);
+        await page.waitForTimeout(150);
+        assert.deepEqual(await lowContrast(page, '#view, #tabs, #banners'), [], `${hash}: 대비 부족`);
+      }
+      await go(page, '#/today', '.article');
+      await page.locator('.para[data-p="0"] .chip-btn', { hasText: '번역' }).click(); // 번역 상자
+      await page.locator('.summary summary').click();
+      assert.deepEqual(await lowContrast(page, '#view'), [], '번역·요약 펼침');
+      await page.locator('.w', { hasText: /^curve$/ }).click();
+      await page.locator('.sheet').waitFor();
+      assert.deepEqual(await lowContrast(page, '.sheet'), [], '단어 뜻 창');
+      await page.keyboard.press('Escape');
+      await go(page, '#/review', '.review-card');
+      await page.keyboard.press('Space');
+      await page.locator('.ratings').waitFor();
+      assert.deepEqual(await lowContrast(page, '#view'), [], '복습 뒷면');
+      await go(page, '#/quiz/2026-11-09', '.choice');
+      await page.locator('.choice').first().click();
+      assert.deepEqual(await lowContrast(page, '#view'), [], '퀴즈 해설');
+      await go(page, '#/vocab', '.vocab-item');
+      await page.locator('.vocab-item').first().click();
+      await page.locator('.sheet').waitFor();
+      assert.deepEqual(await lowContrast(page, '.sheet'), [], '단어장 상세');
+      assert.deepEqual(problems, []);
+    });
+  }
 
   test('iPhone Safari로 처음 열면 홈 화면 추가 안내가 뜨고, 닫으면 다시 뜨지 않는다', async () => {
     const { page } = await open({
@@ -1161,20 +1320,11 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
     await saveFromArticle(page, 'raised');
-    // 최근 기사 미리 받기가 끝날 때까지 기다린다
-    await page.waitForFunction(
-      () =>
-        new Promise((resolve) => {
-          const open = indexedDB.open('dailyenglish');
-          open.onsuccess = () => {
-            const req = open.result.transaction('articleCache').objectStore('articleCache').count();
-            req.onsuccess = () => {
-              open.result.close();
-              resolve(req.result >= 3);
-            };
-          };
-        }),
-    );
+    // 최근 기사 미리 받기(첫 화면을 그린 뒤 잠시 후 시작)가 끝날 때까지 기다린다
+    for (let i = 0; (await dbAll(page, 'articleCache')).length < 3; i++) {
+      assert.ok(i < 100, '최근 기사 미리 받기가 끝나지 않았다');
+      await page.waitForTimeout(200);
+    }
 
     await ctx.setOffline(true);
     problems.length = 0;
@@ -1213,9 +1363,7 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
   test('새 버전: 배포된 파일이 바뀌면 "새 버전이 있어요"가 뜨고, 새로고침하면 적용된다', async () => {
     // 저장소를 임시 폴더에 복사해 따로 서버를 띄우고, 중간에 파일을 바꿔 "새 배포"를 흉내 낸다.
     const dir = await mkdtemp(join(tmpdir(), 'de-site-'));
-    for (const name of ['index.html', 'manifest.webmanifest', 'sw.js', 'css', 'js', 'vendor', 'icons', 'articles']) {
-      await cp(join(ROOT, name), join(dir, name), { recursive: true });
-    }
+    await makeSite(dir);
     const site = await startServer({ port: 0, quiet: true, root: dir });
     try {
       const { page } = await open({ serviceWorkers: 'allow', time: null, baseUrl: site.url });
