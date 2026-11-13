@@ -367,17 +367,21 @@ button:disabled {
   line-height: 1.2;
   text-align: center;
 }
-.btn:hover:not(:disabled):not(.disabled) {
-  border-color: var(--accent);
+@media (hover: hover) {
+  .btn:hover:not(:disabled):not(.disabled) {
+    border-color: var(--accent);
+  }
 }
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
 }
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-strong);
-  border-color: var(--accent-strong);
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-strong);
+    border-color: var(--accent-strong);
+  }
 }
 .btn-danger {
   background: var(--bad);
@@ -426,8 +430,10 @@ button:disabled {
   font-size: 17px;
   line-height: 1;
 }
-.icon-btn:hover:not(:disabled) {
-  background: var(--accent-soft);
+@media (hover: hover) {
+  .icon-btn:hover:not(:disabled) {
+    background: var(--accent-soft);
+  }
 }
 /* 회색 카드 안에서는 버튼이 묻히지 않게 바탕색을 바꾼다 */
 .ws-card:not(.ws-main):not(.ws-phrase) .icon-btn,
@@ -1282,8 +1288,10 @@ mark {
   background: var(--surface);
   text-align: left;
 }
-.vocab-item:hover {
-  border-color: var(--accent);
+@media (hover: hover) {
+  .vocab-item:hover {
+    border-color: var(--accent);
+  }
 }
 .vi-main {
   display: flex;
@@ -1494,8 +1502,10 @@ mark {
   text-align: left;
   font-size: 17px;
 }
-.choice:hover:not(:disabled) {
-  border-color: var(--accent);
+@media (hover: hover) {
+  .choice:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
 }
 .choice:disabled {
   opacity: 1;
@@ -1659,8 +1669,10 @@ mark {
   color: var(--text);
   text-decoration: none;
 }
-.archive-item:hover {
-  border-color: var(--accent);
+@media (hover: hover) {
+  .archive-item:hover {
+    border-color: var(--accent);
+  }
 }
 .ai-meta {
   display: flex;
@@ -1782,6 +1794,365 @@ mark {
   }
 }
 
+/* ── 터치 반응 · 제스처 ─────────────────────────────────────────────── */
+
+/* 브라우저의 기본 "당겨서 새로고침"(페이지 전체 다시 받기)은 끄고, 필요한 화면에서 직접 처리한다. */
+html {
+  overscroll-behavior-y: contain;
+}
+
+/* 두 번 눌러 확대하느라 생기는 지연을 없앤다. (두 손가락 확대는 그대로 된다) */
+a,
+button,
+select,
+summary,
+label,
+input,
+.w {
+  touch-action: manipulation;
+}
+
+/* 좌우로 미는 화면: 세로 스크롤과 두 손가락 확대는 브라우저가, 가로 움직임은 앱이 맡는다. */
+.article,
+.review-stage,
+.vocab-list {
+  touch-action: pan-y pinch-zoom;
+}
+/* 밀려 나가는 화면 때문에 가로 스크롤이 생기지 않게 한다. */
+#view {
+  overflow-x: clip;
+}
+@supports not (overflow-x: clip) {
+  html {
+    overflow-x: hidden;
+  }
+}
+
+/* 누르는 즉시 반응 */
+.btn,
+.chip,
+.chip-btn,
+.star-btn,
+.icon-btn,
+.seg,
+.choice,
+.rating,
+.vocab-item,
+.archive-item,
+.action-item,
+.sheet-close,
+.tab-icon {
+  transition: transform 0.08s ease-out, background-color 0.12s ease-out, border-color 0.12s ease-out;
+}
+.btn:active:not(:disabled):not(.disabled),
+.chip:active,
+.chip-btn:active:not(:disabled),
+.star-btn:active:not(:disabled),
+.seg:active,
+.rating:active,
+.choice:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.icon-btn:active:not(:disabled),
+.sheet-close:active {
+  transform: scale(0.9);
+}
+.vocab-item:active,
+.archive-item:active,
+.action-item:active {
+  background: var(--surface-2);
+}
+#tabs a:active .tab-icon {
+  transform: scale(0.88);
+}
+.w:active {
+  background: var(--surface-2);
+}
+.link-btn:active,
+.toast-action:active {
+  opacity: 0.6;
+}
+
+/* 누르는 곳의 글자는 길게 눌러도 선택되지 않게 한다. (본문·뜻·예문은 선택할 수 있다) */
+button,
+#tabs a,
+.btn,
+summary {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.vocab-item,
+#tabs a {
+  -webkit-touch-callout: none;
+}
+
+/* 화면이 바뀔 때: 탭 순서나 밀어 넘긴 방향에서 들어온다 */
+#view[data-enter='fade'] > * {
+  animation: view-fade 0.18s ease-out;
+}
+#view[data-enter='left'] > * {
+  animation: view-from-left 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+#view[data-enter='right'] > * {
+  animation: view-from-right 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes view-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes view-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+}
+@keyframes view-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+}
+
+/* 바텀시트: 손가락을 따라 내려오고, 닫힐 때 아래로 사라진다 */
+.sheet-backdrop {
+  animation: backdrop-in 0.2s ease-out;
+  transition: background-color 0.18s ease-out;
+}
+@keyframes backdrop-in {
+  from {
+    background-color: transparent;
+  }
+}
+.sheet {
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sheet.dragging {
+  transition: none;
+}
+.sheet-backdrop.closing {
+  background-color: transparent;
+  pointer-events: none;
+}
+.sheet-backdrop.closing .sheet {
+  transform: translateY(105%) !important;
+  transition: transform 0.18s ease-in;
+}
+
+/* 길게 누르기 메뉴 */
+.action-sub {
+  margin-top: 2px;
+  color: var(--text-2);
+}
+.action-list {
+  margin-top: 12px;
+}
+.action-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  padding: 10px 8px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+}
+.action-item.danger {
+  color: var(--bad);
+}
+
+/* 기사 좌우 밀기 안내 */
+.swipe-hint {
+  position: fixed;
+  top: 44%;
+  z-index: 30;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: #1f2a27;
+  color: #f2f5f4;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out, background-color 0.12s ease-out;
+}
+.swipe-hint.show {
+  opacity: 0.94;
+}
+.swipe-hint.from-left {
+  left: 12px;
+}
+.swipe-hint.from-right {
+  right: 12px;
+}
+.swipe-hint.ready {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.swipe-hint.none {
+  background: #56605c;
+}
+
+/* 제스처 안내 글은 터치 기기에서만 보인다 */
+.swipe-tip {
+  display: none;
+  text-align: center;
+}
+@media (hover: none) and (pointer: coarse) {
+  .swipe-tip {
+    display: block;
+  }
+}
+.article > .swipe-tip {
+  margin-top: 14px;
+}
+.vocab > .swipe-tip {
+  margin-top: 10px;
+}
+
+/* 복습 카드 밀기 */
+.review-card {
+  position: relative;
+}
+.review-card:not(.revealed) {
+  cursor: pointer;
+  animation: rise 0.16s ease-out;
+}
+.review-card.revealed .rc-back {
+  animation: rise 0.16s ease-out;
+}
+.review-card[data-swipe]::after {
+  position: absolute;
+  top: 14px;
+  padding: 3px 12px;
+  border: 3px solid currentcolor;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 18px;
+  font-weight: 800;
+  opacity: var(--swipe-p, 0);
+}
+.review-card[data-swipe='again']::after {
+  content: '다시';
+  right: 14px;
+  color: var(--again);
+  transform: rotate(8deg);
+}
+.review-card[data-swipe='good']::after {
+  content: '알맞음';
+  left: 14px;
+  color: var(--good);
+  transform: rotate(-8deg);
+}
+.review-card.swipe-ready[data-swipe='again'] {
+  border-color: var(--again);
+}
+.review-card.swipe-ready[data-swipe='good'] {
+  border-color: var(--good);
+}
+
+/* 단어장: 왼쪽으로 밀어 지우기 */
+.vocab-list li {
+  position: relative;
+  border-radius: var(--radius);
+}
+.vocab-list li.swiping {
+  background: var(--bad-soft);
+}
+.vocab-list li.swiping::after {
+  content: '🗑 지우기';
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  color: var(--bad);
+  font-weight: 700;
+}
+.vocab-list li.swiping.ready {
+  background: var(--bad);
+}
+.vocab-list li.swiping.ready::after {
+  color: #fff;
+}
+:root[data-theme='dark'] .vocab-list li.swiping.ready::after {
+  color: #1a0505;
+}
+.vocab-item {
+  position: relative;
+  z-index: 1;
+}
+
+/* 당겨서 새로고침 표시 */
+.ptr {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) - 36px);
+  left: 50%;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text-2);
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0;
+  transform: translate(-50%, 0);
+  pointer-events: none;
+}
+.ptr.settling {
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
+.ptr.armed {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ptr-icon {
+  display: block;
+}
+.ptr.busy .ptr-icon {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* 가로로 눕힌 폰: 세로 공간이 좁으므로 탭을 낮추고 아이콘과 글자를 옆으로 놓는다 */
+#tabs {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+@media (orientation: landscape) and (max-height: 500px) and (max-width: 759px) {
+  :root {
+    --tab-h: 48px;
+  }
+  #tabs a {
+    flex-direction: row;
+    gap: 6px;
+  }
+  .tab-icon {
+    font-size: 18px;
+  }
+  .tab-badge {
+    position: static;
+  }
+  .sheet {
+    max-height: 94vh;
+    max-height: 94dvh;
+  }
+}
+
 /* ── 넓은 화면(노트북): 탭을 위쪽으로 ──────────────────────────────── */
 
 @media (min-width: 760px) {
@@ -1844,6 +2215,11 @@ mark {
   }
   .sheet-handle {
     visibility: hidden;
+  }
+  .sheet-backdrop.closing .sheet {
+    transform: translateY(14px) !important;
+    opacity: 0;
+    transition: transform 0.16s ease-in, opacity 0.16s ease-in;
   }
 }
 

@@ -1,6 +1,7 @@
 // settings.js — 설정 화면: 발음, 읽기, 복습, 데이터(백업·복원·삭제), 앱 정보
 
 import { checkBackup, count, exportBackup, importBackup, storageInfo, wipeAll } from './db.js';
+import { hapticsSupported } from './gesture.js';
 import { loadPrefs, pref, PREF_KEYS, RATE_MAX, RATE_MIN, setPref } from './prefs.js';
 import { applyUpdate, canInstall, checkForUpdate, isIOS, isStandalone, promptInstall, swSupported, swVersion } from './pwa.js';
 import * as tts from './tts.js';
@@ -119,6 +120,13 @@ export async function render(root) {
       h('input', { type: 'checkbox', class: 'switch', role: 'switch', checked: pref('showTranslation'), 'aria-label': '문단 번역을 처음부터 펼쳐 두기', onchange: (e) => setPref('showTranslation', e.target.checked) }),
       '끄면 문단마다 “번역 보기”를 눌러야 보여요.',
     ),
+    hapticsSupported()
+      ? row(
+          '진동 피드백',
+          h('input', { type: 'checkbox', class: 'switch', role: 'switch', checked: pref('haptics'), 'aria-label': '밀기·길게 누르기에 짧은 진동', onchange: (e) => setPref('haptics', e.target.checked) }),
+          '카드를 밀어 넘기거나 길게 누를 때 짧게 울려요.',
+        )
+      : null,
     row(
       '화면 테마',
       segmented(

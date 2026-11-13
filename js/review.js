@@ -2,6 +2,7 @@
 // 오늘 복습할 단어를 한 장씩 보여 주고, 다시/어려움/알맞음/쉬움으로 평가한다.
 
 import { applyReview, getAll, undoReview } from './db.js';
+import { animateTo, dragX, haptic, swipeCommitted } from './gesture.js';
 import { highlightIn, speakButton } from './popup.js';
 import { pref, setPref } from './prefs.js';
 import { POS_LABEL } from './schema.js';
@@ -124,7 +125,9 @@ export async function render(root) {
     const back = mode === 'en-ko' ? [meaning, contextKo, example] : [wordLine, sentenceFull, contextKo, example];
 
     const kindLabel = { learning: '학습 중', review: '복습', fresh: '새 단어' }[current.kind];
-    const card = h('div', { class: 'review-card' }, h('span', { class: `badge badge-${current.kind}` }, kindLabel), h('div', { class: 'rc-front' }, front));
+    const card = h('div', { class: revealed ? 'review-card revealed' : 'review-card' }, h('span', { class: `badge badge-${current.kind}` }, kindLabel), h('div', { class: 'rc-front' }, front));
+    // 카드 아무 곳이나 눌러도 뜻이 보인다. (아래 버튼과 같은 동작. 🔊 버튼은 제외)
+    if (!revealed) card.addEventListener('click', (e) => !e.target.closest('button, a') && reveal());
 
     const actions = h('div', { class: 'review-actions' });
     if (!revealed) {
@@ -145,6 +148,7 @@ export async function render(root) {
             ),
           ),
         ),
+        h('p', { class: 'hint swipe-tip' }, '카드를 밀어도 돼요: ← 다시 · 알맞음 →'),
       );
     }
     clear(stage).append(card, actions);
@@ -273,6 +277,39 @@ export async function render(root) {
     );
   }
 
+  // ── 카드 밀기: 뜻을 본 뒤 왼쪽으로 밀면 "다시", 오른쪽으로 밀면 "알맞음" ──
+  // (어려움·쉬움과 미세한 선택은 아래 버튼으로 한다)
+  let swiping = false;
+  const swipeThreshold = () => Math.min(110, window.innerWidth * 0.28);
+  const offSwipe = dragX(stage, {
+    start: (e) => {
+      const card = e.target.closest?.('.review-card');
+      return current && revealed && !swiping && card ? card : false;
+    },
+    move: (dx, card) => {
+      const p = Math.min(1, Math.abs(dx) / swipeThreshold());
+      card.style.transform = `translateX(${dx}px) rotate(${dx / 28}deg)`;
+      card.dataset.swipe = dx < 0 ? 'again' : 'good';
+      card.style.setProperty('--swipe-p', p.toFixed(2));
+      card.classList.toggle('swipe-ready', p >= 1);
+    },
+    end: async ({ dx, vx }, card) => {
+      const dir = swipeCommitted(dx, vx, swipeThreshold());
+      if (!dir || !current || !revealed) {
+        await animateTo(card, 'translateX(0px) rotate(0deg)');
+        card.style.transform = '';
+        delete card.dataset.swipe;
+        card.classList.remove('swipe-ready');
+        return;
+      }
+      swiping = true;
+      haptic();
+      await animateTo(card, `translateX(${dir * 120}%) rotate(${dir * 10}deg)`, { ms: 170, opacity: 0 });
+      swiping = false;
+      if (!disposed) await onRate(dir < 0 ? 1 : 3);
+    },
+  });
+
   // ── 키보드: Space/Enter 뜻 보기, 1~4 평가, Z 되돌리기 ───────────────
   const onKey = (e) => {
     if (e.target.closest?.('input, textarea, select') || document.querySelector('.sheet-backdrop, .dialog-backdrop')) return;
@@ -296,6 +333,7 @@ export async function render(root) {
 
   return () => {
     disposed = true;
+    offSwipe();
     document.removeEventListener('keydown', onKey);
     tts.stop();
   };

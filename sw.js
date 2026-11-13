@@ -11,7 +11,7 @@
 // "새 버전이 있어요 [새로고침]"이 뜨고, 이전 버전의 저장본은 지워진다.
 
 /* ── 자동 생성 시작 (직접 고치지 마세요) ── */
-const VERSION = '1.0.0-86eb8a47';
+const VERSION = '1.1.0-18a1fbc6';
 const PRECACHE = [
   'css/app.css',
   'icons/apple-touch-icon.png',
@@ -24,6 +24,7 @@ const PRECACHE = [
   'js/articles.js',
   'js/boot.js',
   'js/db.js',
+  'js/gesture.js',
   'js/main.js',
   'js/popup.js',
   'js/prefs.js',

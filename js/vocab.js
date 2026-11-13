@@ -1,10 +1,12 @@
 // vocab.js — 단어장 화면: 검색·정렬·필터, 상세(예문·기사 문장·복습 정보), 뜻 수정, 삭제, 직접 추가
 
-import { deleteWord, get, getAll, saveWord, updateWord, wordId } from './db.js';
+import { deleteWord, get, getAll, restoreWord, saveWord, updateWord, wordId } from './db.js';
+import { animateTo, dragX, haptic, longPress, swipeCommitted } from './gesture.js';
 import { highlightIn, speakButton } from './popup.js';
 import { POS, POS_LABEL } from './schema.js';
 import { cardStatus, isHard, newCard, State, STATUS_LABEL } from './srs.js';
-import { clear, confirmDialog, emit, emptyState, h, on, openSheet, toast } from './ui.js';
+import { actionSheet, clear, closeOverlaysThen, emit, emptyState, h, on, openSheet, toast } from './ui.js';
+import * as tts from './tts.js';
 import { formatDueDay, formatKoDate, formatShortDate, kstDate, kstDateOf } from './util.js';
 
 const PAGE = 100;
@@ -172,7 +174,27 @@ export async function render(root) {
   }
 
   // ── 상세 ──────────────────────────────────────────────────────────
-  async function openDetail(id) {
+  /** 단어를 지우고 "되돌리기"를 띄운다. 확인 창을 띄우는 대신, 잘못 지웠으면 바로 되살릴 수 있게 한다. */
+  async function removeWithUndo(id) {
+    try {
+      const removed = await deleteWord(id);
+      if (!removed.word) return;
+      emit('vocab-changed');
+      toast(`“${removed.word.text}”을(를) 지웠어요.`, {
+        actionLabel: '되돌리기',
+        duration: 6000,
+        onAction: async () => {
+          await restoreWord(removed);
+          emit('vocab-changed');
+          toast('되돌렸어요.');
+        },
+      });
+    } catch (err) {
+      toast('지우지 못했어요: ' + err.message, { kind: 'warn' });
+    }
+  }
+
+  async function openDetail(id, { edit = false } = {}) {
     const w = await get('words', id);
     if (!w) return;
     const status = cardStatus(w.card);
@@ -210,8 +232,7 @@ export async function render(root) {
       await updateWord(id, { ko, ex: exInput.value.trim() });
       toast('수정했어요.');
       emit('vocab-changed');
-      sheet.close();
-      openDetail(id);
+      closeOverlaysThen(() => openDetail(id), { instant: true });
     });
 
     body.append(
@@ -278,18 +299,9 @@ export async function render(root) {
         {
           type: 'button',
           class: 'btn btn-danger-outline btn-wide',
-          onclick: async () => {
-            const ok = await confirmDialog({
-              title: '단어를 지울까요?',
-              message: `“${w.text}”와 복습 기록이 함께 지워져요.`,
-              confirmLabel: '지우기',
-              danger: true,
-            });
-            if (!ok) return;
-            await deleteWord(id);
-            toast('단어를 지웠어요.');
-            emit('vocab-changed');
+          onclick: () => {
             sheet.close();
+            removeWithUndo(id);
           },
         },
         '단어장에서 지우기',
@@ -297,7 +309,51 @@ export async function render(root) {
     );
 
     const sheet = openSheet(body, { label: `${w.text} 상세` });
+    if (edit) editBtn.click();
   }
+
+  // ── 목록 제스처 ───────────────────────────────────────────────────
+  // 왼쪽으로 밀기: 지우기(되돌리기 가능) · 길게 누르기(또는 마우스 오른쪽 버튼): 빠른 메뉴
+  const deleteThreshold = () => Math.min(130, window.innerWidth * 0.34);
+  const offSwipe = dragX(list, {
+    start: (e) => e.target.closest?.('.vocab-item') ?? false,
+    move: (dx, item) => {
+      const x = dx < 0 ? dx : dx * 0.15; // 오른쪽으로는 거의 움직이지 않는다
+      item.style.transform = `translateX(${x}px)`;
+      const li = item.parentElement;
+      li.classList.add('swiping');
+      const ready = dx <= -deleteThreshold();
+      if (ready !== li.classList.contains('ready')) {
+        li.classList.toggle('ready', ready);
+        if (ready) haptic(8);
+      }
+    },
+    end: async ({ dx, vx }, item) => {
+      const li = item.parentElement;
+      if (swipeCommitted(dx, vx, deleteThreshold()) < 0) {
+        await animateTo(item, 'translateX(-105%)', { ms: 150 });
+        await removeWithUndo(item.dataset.id); // 목록은 vocab-changed 로 다시 그려진다
+        return;
+      }
+      await animateTo(item, 'translateX(0px)');
+      item.style.transform = '';
+      li.classList.remove('swiping', 'ready');
+    },
+  });
+  const offLong = longPress(list, '.vocab-item', (item) => {
+    const w = words.find((x) => x.id === item.dataset.id);
+    if (!w) return;
+    actionSheet({
+      title: w.text,
+      sub: w.ko,
+      actions: [
+        tts.supported ? { label: '🔊 발음 듣기', keepOpen: true, onPick: () => tts.speak(w.text, 'word') } : null,
+        { label: '📖 자세히 보기', onPick: () => openDetail(w.id) },
+        { label: '✏️ 뜻·예문 수정', onPick: () => openDetail(w.id, { edit: true }) },
+        { label: '🗑 단어장에서 지우기', danger: true, onPick: () => removeWithUndo(w.id) },
+      ].filter(Boolean),
+    });
+  });
 
   // ── 직접 추가 ─────────────────────────────────────────────────────
   function openAdd() {
@@ -329,12 +385,13 @@ export async function render(root) {
       const id = wordId(kind, text);
       try {
         const res = await saveWord({ kind, text, lemma: text, pos: kind === 'word' ? posSel.value : '', ko, ex: exInput.value.trim(), custom: true }, newCard());
-        sheet.close();
         emit('vocab-changed');
-        if (res.created) toast('단어장에 추가했어요. ⭐');
-        else {
+        if (res.created) {
+          sheet.close();
+          toast('단어장에 추가했어요. ⭐');
+        } else {
           toast('이미 단어장에 있는 단어예요.');
-          openDetail(id);
+          closeOverlaysThen(() => openDetail(id), { instant: true });
         }
       } catch (err) {
         toast('저장하지 못했어요: ' + err.message, { kind: 'warn' });
@@ -351,6 +408,7 @@ export async function render(root) {
       h('header', { class: 'view-head' }, h('h1', { class: 'view-title' }, '📚 단어장'), sub),
       h('div', { class: 'vocab-tools' }, search, h('button', { type: 'button', class: 'btn btn-primary', onclick: openAdd }, '＋ 직접 추가')),
       h('div', { class: 'vocab-filters' }, chips, sortSel),
+      h('p', { class: 'hint swipe-tip' }, '왼쪽으로 밀면 지우기 · 길게 누르면 메뉴'),
       empty,
       list,
       more,
@@ -359,5 +417,10 @@ export async function render(root) {
   document.title = '단어장 — Daily English Reader';
 
   await reload();
-  return on('vocab-changed', reload);
+  const offChanged = on('vocab-changed', reload);
+  return () => {
+    offChanged();
+    offSwipe();
+    offLong();
+  };
 }

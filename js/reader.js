@@ -3,12 +3,13 @@
 
 import { getArticle, getIndex, neighbors, resolveToday } from './articles.js';
 import { count, getAll, markFinished, markOpened, wordId } from './db.js';
+import { animateTo, dragX, haptic, pullToRefresh, swipeCommitted } from './gesture.js';
 import { openWordSheet, speakButton, starButton } from './popup.js';
 import { pref, setPref } from './prefs.js';
 import { weeklyStatus } from './quiz.js';
 import { splitSentences, tokensToText, TOPIC_LABEL } from './schema.js';
 import * as tts from './tts.js';
-import { clear, emit, emptyState, fill, go, h, on, spinner, toast } from './ui.js';
+import { clear, emit, emptyState, fill, go, h, on, overlayOpen, spinner, toast } from './ui.js';
 import { computeStreak, diffDays, formatKoDate, formatShortDate, kstDate, kstDateOf, readingMinutes } from './util.js';
 
 const READ_DWELL_MS = 3000; // 글을 연 뒤 이 시간이 지나고 끝까지 내려야 "읽음"으로 본다
@@ -335,8 +336,10 @@ export async function render(root, { date } = {}) {
 
   // ── 이전/다음 ─────────────────────────────────────────────────────
   const nav = h('nav', { class: 'art-nav', 'aria-label': '기사 이동' });
+  let around = { older: null, newer: null }; // 좌우로 밀어 넘길 때도 쓴다
   neighbors(article.date)
     .then(({ older, newer }) => {
+      around = { older, newer };
       const link = (it, label) =>
         it ? h('a', { class: 'btn', href: `#/article/${it.date}`, title: it.title_en }, label) : h('span', { class: 'btn disabled', 'aria-disabled': 'true' }, label);
       nav.append(link(older, '◀ 이전 글'), h('a', { class: 'btn', href: '#/archive' }, '지난 기사'), link(newer, '다음 글 ▶'));
@@ -353,8 +356,80 @@ export async function render(root, { date } = {}) {
   const reminder = isTodayView ? await backupReminder() : null; // 그리기 전에 넣어야 화면이 밀리지 않는다
   if (reminder) top.append(reminder);
 
-  clear(root).append(h('article', { class: 'article', dataset: { date: article.date } }, top, header, player, summary, paras, keySection, part5Card, weeklyCard, sources, sentinel, nav));
+  const swipeTip = h('p', { class: 'hint swipe-tip' }, '화면을 좌우로 밀어도 이전·다음 글로 넘어가요.');
+  const articleEl = h('article', { class: 'article', dataset: { date: article.date } }, top, header, player, summary, paras, keySection, part5Card, weeklyCard, sources, sentinel, nav, swipeTip);
+  clear(root).append(articleEl);
   document.title = `${article.title.en} — Daily English Reader`;
+
+  // ── 좌우로 밀어 이전/다음 글 ─────────────────────────────────────
+  // 오른쪽으로 밀면 이전 글(더 오래된 글), 왼쪽으로 밀면 다음 글. 아래의 ◀ ▶ 버튼, 키보드 ← → 와 같은 동작이다.
+  const hintEl = h('div', { class: 'swipe-hint', 'aria-hidden': 'true' });
+  document.body.append(hintEl);
+  cleanups.push(() => hintEl.remove());
+  let leaving = false;
+  const swipeThreshold = () => Math.min(120, window.innerWidth * 0.3);
+  const openNeighbor = async (dir) => {
+    const target = dir > 0 ? around.older : around.newer;
+    if (!target || leaving) return false;
+    leaving = true;
+    await animateTo(articleEl, `translateX(${dir * 100}%)`, { ms: 160, opacity: 0 });
+    go(`#/article/${target.date}`, { enter: dir > 0 ? 'left' : 'right' });
+    return true;
+  };
+  cleanups.push(
+    dragX(articleEl, {
+      start: () => !leaving,
+      move: (dx) => {
+        const dir = Math.sign(dx);
+        const target = dir > 0 ? around.older : around.newer;
+        // 넘길 글이 없으면 고무줄처럼 조금만 따라온다.
+        articleEl.style.transform = `translateX(${target ? dx : dx * 0.2}px)`;
+        hintEl.className = `swipe-hint show ${dir > 0 ? 'from-left' : 'from-right'}`;
+        hintEl.classList.toggle('ready', Boolean(target) && Math.abs(dx) >= swipeThreshold());
+        hintEl.classList.toggle('none', !target);
+        hintEl.textContent = target ? (dir > 0 ? `◀ 이전 글 · ${formatShortDate(target.date)}` : `다음 글 · ${formatShortDate(target.date)} ▶`) : dir > 0 ? '첫 글이에요' : '가장 최근 글이에요';
+      },
+      end: async ({ dx, vx }) => {
+        hintEl.classList.remove('show');
+        const dir = swipeCommitted(dx, vx, swipeThreshold());
+        if (dir && (dir > 0 ? around.older : around.newer)) {
+          haptic();
+          if (await openNeighbor(dir)) return;
+        }
+        await animateTo(articleEl, 'translateX(0px)');
+        articleEl.style.transform = '';
+      },
+    }),
+  );
+  const onArrow = (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || overlayOpen() || e.target.closest?.('input, textarea, select')) return;
+    openNeighbor(e.key === 'ArrowLeft' ? 1 : -1);
+  };
+  document.addEventListener('keydown', onArrow);
+  cleanups.push(() => document.removeEventListener('keydown', onArrow));
+
+  // ── 아래로 당겨 새 기사 확인 (오늘 화면) ─────────────────────────
+  if (isTodayView) {
+    cleanups.push(
+      pullToRefresh(articleEl, async () => {
+        if (!navigator.onLine) {
+          toast('오프라인이라 새 기사를 확인할 수 없어요.');
+          return;
+        }
+        try {
+          await getIndex({ refresh: true });
+          const r = await resolveToday();
+          if (r.article.date !== article.date) {
+            toast('새 기사가 도착했어요.');
+            go('#/today', { enter: 'fade' });
+          } else toast('최신 기사예요.');
+        } catch {
+          toast('새 기사를 확인하지 못했어요.', { kind: 'warn' });
+        }
+      }),
+    );
+  }
 
   // ── 듣기 상태 반영 ────────────────────────────────────────────────
   const paintPlayer = (s) => {

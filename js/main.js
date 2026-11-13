@@ -11,7 +11,7 @@ import * as review from './review.js';
 import * as settings from './settings.js';
 import { dueCount } from './srs.js';
 import { initVoices, stop as stopSpeaking } from './tts.js';
-import { clear, closeSheet, emptyState, h, on, toast } from './ui.js';
+import { clear, closeSheet, emptyState, h, on, takeEnter, toast } from './ui.js';
 import { diffDays, kstDate, kstDateOf } from './util.js';
 import * as vocab from './vocab.js';
 
@@ -33,6 +33,36 @@ const banners = document.getElementById('banners');
 let cleanup = null;
 let navId = 0;
 
+// ── 방문 기록마다 스크롤 위치 기억 ───────────────────────────────────
+// 화면마다 번호(history.state.idx)를 붙여 둔다. 번호가 이미 있는 기록으로 왔다면 뒤로/앞으로 가기이므로
+// 그때 보던 위치로 되돌리고, 새로 연 화면은 맨 위에서 시작한다.
+const TAB_ORDER = ['today', 'vocab', 'review', 'settings'];
+const positions = new Map();
+let entrySeq = Date.now();
+let currentIdx = null;
+let currentTab = null;
+let currentHash = null;
+
+function claimEntry() {
+  const known = history.state?.idx;
+  if (known != null) return { idx: known, revisit: true };
+  const idx = ++entrySeq;
+  try {
+    history.replaceState({ ...(history.state ?? {}), idx }, '');
+  } catch {
+    /* 방문 기록을 쓸 수 없으면 항상 맨 위에서 시작한다 */
+  }
+  return { idx, revisit: false };
+}
+
+/** 새 화면이 들어오는 모양을 정한다: 밀어서 넘겼으면 그 방향, 탭을 옮겼으면 탭 순서대로, 그 밖에는 서서히. */
+function playEnter(enter) {
+  delete view.dataset.enter;
+  if (!enter) return;
+  void view.offsetWidth; // 같은 방향이 연달아 와도 애니메이션이 다시 시작되게 한다
+  view.dataset.enter = enter;
+}
+
 async function route() {
   const hash = location.hash || '#/today';
   let match = null;
@@ -42,6 +72,18 @@ async function route() {
     return route();
   }
   const id = ++navId;
+  if (currentIdx != null) positions.set(currentIdx, window.scrollY);
+  const { idx, revisit } = claimEntry();
+  const sameScreen = currentHash === hash && currentIdx === idx;
+  let enter = takeEnter();
+  if (!enter && currentTab && !sameScreen) {
+    const d = TAB_ORDER.indexOf(found.tab) - TAB_ORDER.indexOf(currentTab);
+    enter = d > 0 ? 'right' : d < 0 ? 'left' : 'fade';
+  }
+  currentIdx = idx;
+  currentTab = found.tab;
+  currentHash = hash;
+
   closeSheet();
   stopSpeaking();
   try {
@@ -65,6 +107,8 @@ async function route() {
       return;
     }
     cleanup = typeof fn === 'function' ? fn : null;
+    playEnter(enter);
+    if (revisit && positions.get(idx) > 0) window.scrollTo(0, positions.get(idx));
     view.focus({ preventScroll: true });
   } catch (e) {
     console.error(e);
@@ -78,6 +122,17 @@ async function route() {
       }),
     );
   }
+}
+
+/** 지금 보고 있는 탭을 다시 누르면 맨 위로 올라간다. (앱에서 흔히 쓰는 동작) */
+function initTabs() {
+  document.getElementById('tabs')?.addEventListener('click', (e) => {
+    const a = e.target.closest?.('a[data-tab]');
+    if (!a || a.getAttribute('href') !== location.hash) return;
+    e.preventDefault();
+    const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' });
+  });
 }
 
 // ── 복습 탭 배지 ─────────────────────────────────────────────────────
@@ -218,8 +273,16 @@ async function init() {
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && updateBadge());
   setInterval(updateBadge, 5 * 60_000);
 
+  try {
+    history.scrollRestoration = 'manual'; // 스크롤 위치는 route()가 직접 되돌린다
+  } catch {
+    /* 지원하지 않는 브라우저 */
+  }
+  // 새로고침 전에 열려 있던 창의 흔적(방문 기록의 overlay 표시)은 지운다.
+  if (!location.hash || history.state?.overlay) history.replaceState(null, '', location.hash || '#/today');
   window.addEventListener('hashchange', route);
-  if (!location.hash) history.replaceState(null, '', '#/today');
+  initTabs();
+  document.addEventListener('touchstart', () => {}, { passive: true }); // iOS Safari에서 :active(누름 표시)가 동작하게 한다
   await route();
 
   updateBadge();

@@ -1,11 +1,11 @@
 // popup.js — 단어 뜻 바텀시트
 // 기사에서 단어를 누르면 그 문장에서의 뜻, 원형, 예문, 기사 문장을 보여 주고 ⭐로 단어장에 저장한다.
 
-import { deleteWord, get, saveWord, wordId } from './db.js';
+import { deleteWord, get, restoreWord, saveWord, wordId } from './db.js';
 import { POS_LABEL, splitSentences, tokensToText } from './schema.js';
 import { newCard } from './srs.js';
 import * as tts from './tts.js';
-import { confirmDialog, emit, h, openSheet, toast } from './ui.js';
+import { emit, h, openSheet, toast } from './ui.js';
 import { formatShortDate, splitAround } from './util.js';
 
 /** 🔊 버튼. 지원하지 않는 브라우저에서는 비활성화하고 이유를 알려 준다. */
@@ -49,18 +49,20 @@ export function starButton(makeEntry, id, saved, onChange) {
     btn.disabled = true;
     try {
       if (word) {
-        if (word.card?.reps > 0) {
-          const ok = await confirmDialog({
-            title: '단어장에서 뺄까요?',
-            message: `“${word.text}”의 복습 기록(${word.card.reps}회)도 함께 지워져요.`,
-            confirmLabel: '빼기',
-            danger: true,
-          });
-          if (!ok) return;
-        }
-        await deleteWord(id);
+        // 확인 창으로 한 번 더 묻는 대신, 복습 기록까지 그대로 되살리는 "되돌리기"를 준다.
+        const removed = await deleteWord(id);
         word = null;
-        toast('단어장에서 뺐어요.');
+        toast('단어장에서 뺐어요.', {
+          actionLabel: '되돌리기',
+          onAction: async () => {
+            if (!removed.word) return;
+            await restoreWord(removed);
+            word = removed.word;
+            paint();
+            emit('vocab-changed');
+            onChange?.(word);
+          },
+        });
       } else {
         const res = await saveWord(makeEntry(), newCard());
         word = res.word;

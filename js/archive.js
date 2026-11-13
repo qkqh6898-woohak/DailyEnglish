@@ -2,6 +2,7 @@
 
 import { getIndex } from './articles.js';
 import { getAll } from './db.js';
+import { pullToRefresh } from './gesture.js';
 import { TOPIC_LABEL, TOPICS } from './schema.js';
 import { clear, emptyState, go, h, spinner, toast } from './ui.js';
 import { formatKoDate, formatKoMonth } from './util.js';
@@ -111,6 +112,12 @@ export async function render(root) {
 
   if (!(await load(true))) return () => {};
 
+  const refresh = async () => {
+    if (!(await load(true))) return;
+    paint();
+    toast(index.offline ? '오프라인이라 저장된 목록을 보여 드려요.' : '목록을 새로 받았어요.');
+  };
+
   clear(root).append(
     h(
       'div',
@@ -130,10 +137,7 @@ export async function render(root) {
               class: 'btn',
               onclick: async (e) => {
                 e.target.disabled = true;
-                if (await load(true)) {
-                  paint();
-                  toast(index.offline ? '오프라인이라 저장된 목록을 보여 드려요.' : '목록을 새로 받았어요.');
-                }
+                await refresh();
                 e.target.disabled = false;
               },
             },
@@ -147,5 +151,6 @@ export async function render(root) {
     ),
   );
   paint();
-  return () => {};
+  // 목록을 아래로 당겨도 새로 받는다. ("새로고침" 버튼과 같은 동작)
+  return pullToRefresh(root.firstElementChild, refresh);
 }

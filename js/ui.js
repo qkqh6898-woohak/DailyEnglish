@@ -81,6 +81,112 @@ export function toast(message, { actionLabel, onAction, duration = 3200, kind = 
   return close;
 }
 
+// ── 겹쳐 뜨는 창과 뒤로 가기 ─────────────────────────────────────────
+// 바텀시트·확인 창이 열릴 때 방문 기록을 한 칸 쌓아 둔다. 그러면 Android의 뒤로 가기 버튼이나
+// iOS의 가장자리 밀기가 화면을 떠나지 않고 창만 닫는다. (창을 직접 닫으면 쌓은 칸을 되돌린다)
+
+const overlays = [];
+const hasWindow = typeof window !== 'undefined';
+const historyDepth = () => history.state?.overlay ?? 0;
+let rewinding = false; // 우리가 부른 "뒤로"가 끝나기를 기다리는 중
+let rewindTimer = null;
+
+/**
+ * 방문 기록에 쌓인 칸 수를 열려 있는 창 수에 맞춘다.
+ * "뒤로"는 바로 끝나지 않으므로, 끝나기 전에는 새 칸을 쌓지 않고 끝난 뒤에 다시 맞춘다.
+ * (창을 닫자마자 다른 창을 여는 경우에 순서가 엇갈려 새 창이 닫히는 일을 막는다)
+ */
+function syncHistory() {
+  if (!hasWindow || rewinding) return;
+  const have = historyDepth();
+  const want = overlays.length;
+  try {
+    if (have > want) {
+      rewinding = true;
+      rewindTimer = setTimeout(() => {
+        rewinding = false;
+        syncHistory();
+      }, 700);
+      history.go(want - have);
+    } else {
+      for (let d = have + 1; d <= want; d++) history.pushState({ ...(history.state ?? {}), overlay: d }, '');
+    }
+  } catch {
+    /* 방문 기록을 쓸 수 없는 환경이면 뒤로 가기 연동만 빠진다 */
+  }
+}
+
+function pushOverlay(close) {
+  const entry = { close };
+  overlays.push(entry);
+  syncHistory();
+  /** 창을 직접 닫았을 때 부른다. */
+  return () => {
+    const i = overlays.indexOf(entry);
+    if (i < 0) return;
+    overlays.splice(i, 1);
+    syncHistory();
+  };
+}
+
+if (hasWindow) {
+  window.addEventListener('popstate', () => {
+    if (rewinding) {
+      // 우리가 부른 "뒤로"가 끝났다. 그 사이에 열린 창이 있으면 이제 칸을 쌓는다.
+      rewinding = false;
+      clearTimeout(rewindTimer);
+      syncHistory();
+      return;
+    }
+    // 사용자가 뒤로 가기를 눌렀다 → 그만큼 창을 닫는다.
+    const depth = historyDepth();
+    while (overlays.length > depth) overlays.pop().close();
+  });
+
+  // 창 안의 앱 링크(#/…)를 누르면: 창을 닫아 방문 기록을 되돌린 "다음에" 이동한다.
+  // (순서가 바뀌면 되돌리기가 새 화면을 다시 이전 화면으로 돌려 버린다)
+  document.addEventListener(
+    'click',
+    (e) => {
+      if ((!overlays.length && !rewinding) || e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const a = e.target.closest?.('a[href^="#/"]');
+      if (!a || a.target === '_blank') return;
+      e.preventDefault();
+      closeOverlaysThen(() => go(a.getAttribute('href')));
+    },
+    true,
+  );
+}
+
+/** 방문 기록 정리("뒤로")가 진행 중이면 끝난 뒤에, 아니면 바로 fn을 부른다. */
+function whenSettled(fn) {
+  if (!rewinding) return fn();
+  let done = false;
+  const run = () => {
+    if (done) return;
+    done = true;
+    window.removeEventListener('popstate', check);
+    fn();
+  };
+  const check = () => !rewinding && run();
+  window.addEventListener('popstate', check);
+  setTimeout(run, 800);
+}
+
+/**
+ * 열려 있는 창을 모두 닫고, 방문 기록 정리가 끝난 뒤 fn을 부른다.
+ * 닫은 자리에 곧바로 다른 창을 띄울 때는 instant를 주어, 내려가는 창과 올라오는 창이 겹쳐 보이지 않게 한다.
+ */
+export function closeOverlaysThen(fn, { instant = false } = {}) {
+  for (const o of [...overlays].reverse()) o.close({ instant });
+  whenSettled(fn);
+}
+
+/** 겹쳐 뜬 창이 있는가 (제스처가 창 뒤의 화면을 움직이지 않도록 확인할 때 쓴다) */
+export const overlayOpen = () => overlays.length > 0;
+
+const reducedMotion = () => hasWindow && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
 // ── 확인 창 ──────────────────────────────────────────────────────────
 
 let overlayDepth = 0;
@@ -101,10 +207,14 @@ const unlockScroll = () => {
 export function askDialog({ title, message, buttons }) {
   return new Promise((resolve) => {
     const previous = document.activeElement;
+    let finished = false;
     const finish = (value) => {
+      if (finished) return;
+      finished = true;
       document.removeEventListener('keydown', onKey, true);
       backdrop.remove();
       unlockScroll();
+      release();
       previous?.focus?.();
       resolve(value);
     };
@@ -137,6 +247,7 @@ export function askDialog({ title, message, buttons }) {
     );
     document.body.append(backdrop);
     lockScroll();
+    const release = pushOverlay(() => finish(null));
     document.addEventListener('keydown', onKey, true);
     box.querySelector('.btn-primary, .btn-danger, .btn')?.focus();
   });
@@ -160,30 +271,46 @@ export async function confirmDialog({ title, message, confirmLabel = '확인', c
 let currentSheet = null;
 
 /**
- * 화면 아래에서 올라오는 창. 바깥을 누르거나, 아래로 밀거나, Esc를 누르면 닫힌다.
- * @returns {{close: () => void, el: HTMLElement}}
+ * 화면 아래에서 올라오는 창. 바깥을 누르거나, 아래로 밀거나, Esc·뒤로 가기를 누르면 닫힌다.
+ * @returns {{close: (opts?: {instant?: boolean}) => boolean, el: HTMLElement}} close는 이번에 닫았으면 true
  */
 export function openSheet(content, { label = '상세 정보', onClose } = {}) {
-  currentSheet?.close();
+  currentSheet?.close({ instant: true });
+  // 아직 내려가는 중인 이전 창이 있으면 바로 치운다. (두 창이 겹쳐 보이지 않게)
+  document.querySelectorAll('.sheet-backdrop.closing').forEach((el) => el.remove());
   const previous = document.activeElement;
   let closed = false;
 
-  const close = () => {
-    if (closed) return;
+  const close = ({ instant = false } = {}) => {
+    if (closed) return false;
     closed = true;
     document.removeEventListener('keydown', onKey);
-    backdrop.remove();
     unlockScroll();
     if (currentSheet === api) currentSheet = null;
+    release();
+    // 내려가는 동작이 끝난 뒤에 지운다. (다른 창으로 바로 바뀔 때와 동작 줄이기 설정에서는 즉시)
+    if (instant || reducedMotion()) backdrop.remove();
+    else {
+      let removed = false;
+      const remove = () => {
+        if (removed) return;
+        removed = true;
+        backdrop.remove();
+      };
+      backdrop.classList.add('closing');
+      sheet.addEventListener('transitionend', (e) => e.target === sheet && remove());
+      setTimeout(remove, 320);
+    }
     previous?.focus?.({ preventScroll: true });
     onClose?.();
+    return true;
   };
   const onKey = (e) => {
     if (e.key === 'Escape' && !document.querySelector('.dialog-backdrop')) close();
   };
 
   const handle = h('div', { class: 'sheet-handle', 'aria-hidden': 'true' });
-  const closeBtn = h('button', { class: 'sheet-close', type: 'button', 'aria-label': '닫기', onclick: close }, '✕');
+  const closeBtn = h('button', { class: 'sheet-close', type: 'button', 'aria-label': '닫기', onclick: () => close() }, '✕');
   const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': label, tabindex: '-1' }, handle, closeBtn, content);
   const backdrop = h(
     'div',
@@ -196,40 +323,99 @@ export function openSheet(content, { label = '상세 정보', onClose } = {}) {
     sheet,
   );
 
-  // 아래로 밀어서 닫기 (내용을 맨 위까지 올린 상태에서만)
-  let startY = null;
+  // 아래로 밀어서 닫기: 손가락을 따라 내려오고, 충분히 내리거나 빠르게 튕기면 닫힌다.
+  // 내용을 맨 위까지 올린 상태에서만 시작한다. (그 밖에는 창 안의 스크롤이 우선)
+  let drag = null;
   sheet.addEventListener(
     'touchstart',
     (e) => {
-      startY = sheet.scrollTop <= 0 ? e.touches[0].clientY : null;
+      const ok = e.touches.length === 1 && sheet.scrollTop <= 0 && !e.target.closest?.('input, textarea, select');
+      drag = ok ? { y: e.touches[0].clientY, x: e.touches[0].clientX, lastY: e.touches[0].clientY, lastT: e.timeStamp, v: 0, on: false } : null;
     },
     { passive: true },
   );
   sheet.addEventListener(
     'touchmove',
     (e) => {
-      if (startY == null) return;
-      const dy = e.touches[0].clientY - startY;
+      if (!drag) return;
+      const p = e.touches[0];
+      const dy = p.clientY - drag.y;
+      if (!drag.on) {
+        if (Math.abs(dy) < 8 && Math.abs(p.clientX - drag.x) < 8) return;
+        if (dy <= 0 || Math.abs(p.clientX - drag.x) > dy) {
+          drag = null; // 위로 올리거나 옆으로 미는 동작은 창을 움직이지 않는다
+          return;
+        }
+        drag.on = true;
+        sheet.classList.add('dragging');
+      }
+      const dt = e.timeStamp - drag.lastT;
+      if (dt > 0) drag.v = (p.clientY - drag.lastY) / dt;
+      drag.lastY = p.clientY;
+      drag.lastT = e.timeStamp;
       sheet.style.transform = dy > 0 ? `translateY(${dy}px)` : '';
     },
     { passive: true },
   );
-  sheet.addEventListener('touchend', (e) => {
-    if (startY == null) return;
-    const dy = e.changedTouches[0].clientY - startY;
-    startY = null;
-    if (dy > 90) close();
+  const endDrag = (e) => {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (!d.on) return;
+    sheet.classList.remove('dragging');
+    const dy = (e.changedTouches?.[0]?.clientY ?? d.lastY) - d.y;
+    if (e.type === 'touchend' && (dy > 90 || (dy > 30 && d.v > 0.5))) close();
     else sheet.style.transform = '';
-  });
+  };
+  sheet.addEventListener('touchend', endDrag);
+  sheet.addEventListener('touchcancel', endDrag);
 
   document.body.append(backdrop);
   lockScroll();
+  const release = pushOverlay((opts) => close(opts));
   document.addEventListener('keydown', onKey);
   sheet.focus({ preventScroll: true });
 
   const api = { close, el: sheet };
   currentSheet = api;
   return api;
+}
+
+/**
+ * 고를 수 있는 동작 목록 창 (길게 누르기 메뉴).
+ * @param {{title: string, sub?: string, actions: {label: string, onPick: () => void, danger?: boolean, keepOpen?: boolean}[]}} opts
+ *   keepOpen: 창을 닫지 않고 바로 실행한다. (발음 듣기처럼 누른 즉시 실행해야 하는 동작)
+ */
+export function actionSheet({ title, sub, actions }) {
+  const sheet = openSheet(
+    h(
+      'div',
+      { class: 'action-sheet' },
+      h('h2', { class: 'sheet-title', lang: 'en' }, title),
+      sub ? h('p', { class: 'action-sub' }, sub) : null,
+      h(
+        'ul',
+        { class: 'action-list' },
+        actions.map((a) =>
+          h(
+            'li',
+            null,
+            h(
+              'button',
+              {
+                type: 'button',
+                class: a.danger ? 'action-item danger' : 'action-item',
+                onclick: () => (a.keepOpen ? a.onPick() : closeOverlaysThen(a.onPick, { instant: true })),
+              },
+              a.label,
+            ),
+          ),
+        ),
+      ),
+    ),
+    { label: `${title} 메뉴` },
+  );
+  return sheet;
 }
 
 export function closeSheet() {
@@ -287,10 +473,27 @@ export function spinner(label = '불러오는 중…') {
   return h('div', { class: 'loading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), label);
 }
 
-/** 앱 안의 다른 화면으로 이동 */
-export function go(hash) {
-  if (location.hash === hash) window.dispatchEvent(new HashChangeEvent('hashchange'));
-  else location.hash = hash;
+let nextEnter = null;
+
+/** 다음 화면이 들어오는 방향을 한 번 꺼내 간다. (라우터가 쓴다) */
+export function takeEnter() {
+  const v = nextEnter;
+  nextEnter = null;
+  return v;
+}
+
+/**
+ * 앱 안의 다른 화면으로 이동
+ * @param {string} hash
+ * @param {{enter?: 'left'|'right'|'fade'}} [opts] enter: 새 화면이 들어오는 쪽 (밀어서 넘길 때)
+ */
+export function go(hash, { enter } = {}) {
+  // 창을 닫으며 방문 기록을 되돌리는 중이면, 그것이 끝난 뒤에 이동한다.
+  whenSettled(() => {
+    nextEnter = enter ?? null;
+    if (location.hash === hash) window.dispatchEvent(new HashChangeEvent('hashchange'));
+    else location.hash = hash;
+  });
 }
 
 /** 데이터가 바뀌었음을 다른 화면 요소에 알린다. (탭 배지, 저장 표시 등) */

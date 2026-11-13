@@ -156,12 +156,26 @@ export function updateWord(id, patch, nowIso = new Date().toISOString()) {
   });
 }
 
-/** 단어와 그 복습 기록을 함께 지운다. */
+/**
+ * 단어와 그 복습 기록을 함께 지운다.
+ * @returns {Promise<{word: object|undefined, logs: object[]}>} 지운 내용 (restoreWord로 되돌릴 수 있다)
+ */
 export function deleteWord(id) {
   return tx(['words', 'reviewLogs'], 'readwrite', async (s, w) => {
+    const word = await w(s.words.get(id));
+    const logs = await w(s.reviewLogs.index('wordId').getAll(id));
     await w(s.words.delete(id));
-    const keys = await w(s.reviewLogs.index('wordId').getAllKeys(id));
-    for (const k of keys) s.reviewLogs.delete(k);
+    for (const log of logs) s.reviewLogs.delete(log.id);
+    return { word, logs };
+  });
+}
+
+/** deleteWord로 지운 단어와 복습 기록을 그대로 되살린다. ("되돌리기") */
+export function restoreWord({ word, logs }) {
+  return tx(['words', 'reviewLogs'], 'readwrite', async (s, w) => {
+    if (!word) return;
+    await w(s.words.put(word));
+    for (const log of logs ?? []) s.reviewLogs.put(log);
   });
 }
 

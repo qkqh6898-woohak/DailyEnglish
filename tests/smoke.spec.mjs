@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 
 import { tokensToText } from '../js/schema.js';
+import { APP_VERSION } from '../js/version.js';
 import { ROOT } from '../tools/lib.mjs';
 import { startServer } from '../tools/serve.mjs';
 
@@ -162,6 +163,8 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
   }
 
   const go = async (page, hash, selector) => {
+    // 방금 닫은 창이 방문 기록을 되돌리는 중이면 끝난 뒤에 이동한다. (사람 손으로는 그 사이에 누를 수 없다)
+    await page.waitForFunction(() => !history.state?.overlay && !document.querySelector('.sheet-backdrop, .dialog-backdrop'));
     await page.evaluate((h) => (location.hash = h), hash);
     await page.waitForSelector(selector);
   };
@@ -531,6 +534,7 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
     await sheet.locator('button[type="submit"]').click();
     await page.locator('.sheet .ws-ko', { hasText: /^인플레이션$/ }).waitFor();
     await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector('.sheet')); // 창이 내려가는 동안에는 다음 동작을 하지 않는다
     assert.match(await page.locator('.vocab-item', { hasText: 'inflation' }).innerText(), /인플레이션/);
 
     // 직접 추가 (띄어쓰기가 있으면 구)
@@ -559,8 +563,16 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
 
     // 삭제
     await page.locator('.vocab-item', { hasText: 'ramp up' }).click();
+    // 삭제: 확인 창 없이 바로 지우고, "되돌리기"로 복습 기록까지 되살릴 수 있다
     await page.locator('.sheet button', { hasText: '단어장에서 지우기' }).click();
-    await page.locator('.dialog button', { hasText: '지우기' }).click();
+    await page.locator('.vocab-item', { hasText: 'ramp up' }).waitFor({ state: 'detached' });
+    assert.equal(await page.locator('.dialog').count(), 0, '확인 창을 띄우지 않는다');
+    assert.equal((await dbAll(page, 'words')).length, 3);
+    await page.locator('.toast-action', { hasText: '되돌리기' }).click();
+    await page.locator('.vocab-item', { hasText: 'ramp up' }).waitFor();
+    assert.deepEqual((await dbAll(page, 'words')).find((w) => w.id === 'ph:ramp up'), custom, '되돌리면 지우기 전과 똑같다');
+    await page.locator('.vocab-item', { hasText: 'ramp up' }).click();
+    await page.locator('.sheet button', { hasText: '단어장에서 지우기' }).click();
     await page.locator('.vocab-item', { hasText: 'ramp up' }).waitFor({ state: 'detached' });
     words = await dbAll(page, 'words');
     assert.equal(words.length, 3);
@@ -922,7 +934,7 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
     assert.equal(await root('data-theme'), 'dark');
     await page.locator('.seg', { hasText: '크게' }).click();
     assert.equal(await root('data-font'), 'l');
-    await page.locator('input[role="switch"]').check();
+    await page.locator('input[role="switch"][aria-label^="문단 번역"]').check();
     await page.locator('select[aria-label="목표 기억률"]').selectOption('0.85');
     await page.waitForFunction(() => localStorage.getItem('de:theme') === 'dark' && localStorage.getItem('de:font') === 'l');
     await waitForSetting(page, 'retention', 0.85);
@@ -932,9 +944,9 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
     assert.equal(await root('data-theme'), 'dark');
     assert.equal(await root('data-font'), 'l');
     assert.equal(await page.locator('.seg.on', { hasText: '다크' }).count(), 1);
-    assert.equal(await page.locator('input[role="switch"]').isChecked(), true);
+    assert.equal(await page.locator('input[role="switch"][aria-label^="문단 번역"]').isChecked(), true);
     assert.equal(await page.locator('select[aria-label="목표 기억률"]').inputValue(), '0.85');
-    assert.match(await page.locator('.settings').innerText(), /Daily English Reader 1\.0\.0/);
+    assert.ok((await page.locator('.settings').innerText()).includes(`Daily English Reader ${APP_VERSION}`));
 
     await go(page, '#/today', '.article');
     assert.equal(await page.locator('.para-ko:visible').count(), 5, '번역이 처음부터 펼쳐져 있다');
@@ -1096,7 +1108,8 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
           if (el.matches('a') && getComputedStyle(el).display === 'inline') continue; // 문장 속 링크
           const r = el.getBoundingClientRect();
           if (r.width === 0 || r.height === 0) continue;
-          if (r.height < 48 || r.width < 48) out.push({ el: (el.className || el.tagName) + ' "' + el.textContent.trim().slice(0, 16) + '"', w: Math.round(r.width), h: Math.round(r.height) });
+          // 화면이 들어오는 애니메이션 중에는 소수점 오차(47.9999…)가 생길 수 있어 아주 작은 여유를 둔다.
+          if (r.height < 47.95 || r.width < 47.95) out.push({ el: (el.className || el.tagName) + ' "' + el.textContent.trim().slice(0, 16) + '"', w: Math.round(r.width), h: Math.round(r.height) });
         }
       }
       return out;
@@ -1216,6 +1229,335 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
     await go(page, '#/quiz/2026-11-09', '.choice');
     await page.locator('.choice').first().click();
     assert.deepEqual(await smallTargets(page, '#view'), [], '퀴즈 해설');
+    assert.deepEqual(problems, []);
+  });
+
+  // ── 터치 제스처 (실제 터치 입력: 손가락을 대고 → 움직이고 → 뗀다) ──────
+
+  /** 손가락 하나로 끄는 동작. CDP로 진짜 터치 입력을 넣으므로 브라우저의 스크롤·touch-action 판정을 그대로 거친다. */
+  async function drag(page, from, to, { steps = 8, stepMs = 16, holdMs = 0 } = {}) {
+    const cdp = await page.context().newCDPSession(page);
+    const pt = (x, y) => [{ x: Math.round(x), y: Math.round(y), id: 1 }];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(from.x, from.y) });
+    if (holdMs) await new Promise((r) => setTimeout(r, holdMs));
+    for (let i = 1; i <= steps; i++) {
+      const k = i / steps;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k) });
+      await new Promise((r) => setTimeout(r, stepMs));
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+    // 빠르게 튕긴 직후의 누르기는 브라우저가 "관성 멈추기"로 보고 버린다. 사람 손처럼 잠깐 쉰다.
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  const shownDate = (page) => page.locator('.article').getAttribute('data-date');
+  const waitDate = (page, date) => page.waitForSelector(`.article[data-date="${date}"]`);
+  const scrollY = (page) => page.evaluate(() => Math.round(window.scrollY));
+
+  test('제스처: 기사를 좌우로 밀면 이전·다음 글로 넘어가고, 세로 스크롤·화면 끝·짧은 밀기에는 넘어가지 않는다', async () => {
+    const { page, problems } = await open({ hash: '#/article/2026-11-09' });
+    await waitDate(page, '2026-11-09');
+    await page.locator('.art-nav a', { hasText: '이전 글' }).waitFor(); // 앞뒤 글 정보가 준비됨
+    const y = 420;
+
+    // 세로로 밀면 스크롤만 된다
+    await drag(page, { x: 200, y: 600 }, { x: 215, y: 250 });
+    await page.waitForFunction(() => window.scrollY > 150);
+    assert.equal(await shownDate(page), '2026-11-09', '세로 스크롤 중에는 글이 넘어가지 않는다');
+    assert.equal(await page.locator('.article').evaluate((el) => el.style.transform), '', '세로 스크롤 중에는 화면이 옆으로 움직이지 않는다');
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // 짧게 밀다 말면 제자리로 돌아온다
+    await drag(page, { x: 150, y }, { x: 190, y }, { stepMs: 40 });
+    await page.waitForFunction(() => document.querySelector('.article').style.transform === '');
+    assert.equal(await shownDate(page), '2026-11-09');
+
+    // 화면 왼쪽 끝에서 시작한 밀기는 시스템의 "뒤로 가기"에 양보한다
+    await drag(page, { x: 8, y }, { x: 300, y });
+    assert.equal(await shownDate(page), '2026-11-09', '화면 끝에서 시작하면 넘기지 않는다');
+    assert.equal(await page.locator('.article').evaluate((el) => el.style.transform), '');
+
+    // 오른쪽으로 밀기 → 이전 글, 미는 동안 안내가 보인다
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 80, y, id: 1 }] });
+    for (const x of [100, 140, 200, 260]) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y, id: 1 }] });
+    assert.match(await page.locator('.swipe-hint.show').innerText(), /이전 글 · 11\/7/);
+    assert.equal(await page.locator('.swipe-hint').evaluate((el) => el.classList.contains('ready')), true, '충분히 밀면 안내 색이 바뀐다');
+    assert.match(await page.locator('.article').evaluate((el) => el.style.transform), /translateX\(180px\)/, '화면이 손가락을 따라온다');
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await cdp.detach();
+    await waitDate(page, '2026-11-07');
+    assert.equal(await page.evaluate(() => location.hash), '#/article/2026-11-07');
+
+    // 가장 오래된 글에서 더 밀면 고무줄처럼 조금만 움직이고 그대로다
+    await page.locator('.art-nav .disabled', { hasText: '이전 글' }).waitFor();
+    await drag(page, { x: 80, y }, { x: 300, y });
+    await page.waitForFunction(() => document.querySelector('.article').style.transform === '');
+    assert.equal(await shownDate(page), '2026-11-07');
+
+    // 왼쪽으로 밀기 → 다음 글 (빠르게 튕겨도 넘어간다)
+    await drag(page, { x: 300, y }, { x: 80, y });
+    await waitDate(page, '2026-11-09');
+    await page.locator('.art-nav a', { hasText: '다음 글' }).waitFor();
+    await drag(page, { x: 300, y }, { x: 230, y }, { steps: 3, stepMs: 8 });
+    await waitDate(page, '2026-11-10');
+
+    // 뒤로 가기는 넘겨 온 순서를 거꾸로 따라간다
+    await page.goBack();
+    await waitDate(page, '2026-11-09');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, '가로 스크롤이 생기지 않는다');
+    assert.deepEqual(problems, []);
+  });
+
+  test('제스처: 키보드 ← → 로도 이전·다음 글로 간다 (터치가 없는 기기)', async () => {
+    const { page, problems } = await open({ viewport: LAPTOP, hash: '#/article/2026-11-09' });
+    await waitDate(page, '2026-11-09');
+    await page.locator('.art-nav a', { hasText: '이전 글' }).waitFor();
+    await page.keyboard.press('ArrowLeft');
+    await waitDate(page, '2026-11-07');
+    await page.locator('.art-nav a', { hasText: '다음 글' }).waitFor();
+    await page.keyboard.press('ArrowRight');
+    await waitDate(page, '2026-11-09');
+    assert.equal(await page.locator('.swipe-tip').first().isVisible(), false, '마우스 기기에서는 밀기 안내를 숨긴다');
+    assert.deepEqual(problems, []);
+  });
+
+  test('뒤로 가기: 열린 창만 닫고 화면은 그대로, 직접 닫은 뒤에는 헛도는 뒤로 가기가 없다. 스크롤 위치도 되돌아온다', async () => {
+    const { page, problems } = await open({ time: TUE_NOON });
+    await page.waitForSelector('.article');
+
+    // 단어 뜻 창 → 뒤로 가기 → 창만 닫힌다
+    await page.locator('.w', { hasText: /^curve$/ }).click();
+    await page.locator('.sheet').waitFor();
+    await page.goBack();
+    await page.waitForFunction(() => !document.querySelector('.sheet'));
+    assert.equal(await page.evaluate(() => location.hash), '#/today');
+    assert.equal(await page.locator('.article').count(), 1);
+
+    // 확인 창 → 뒤로 가기 → 취소로 닫힌다 (아무것도 지워지지 않는다)
+    await saveFromArticle(page, 'curve');
+    await go(page, '#/settings', '.settings');
+    await page.locator('button', { hasText: '전체 삭제' }).click();
+    await page.locator('.dialog').waitFor();
+    await page.goBack();
+    await page.waitForFunction(() => !document.querySelector('.dialog'));
+    assert.equal(await page.evaluate(() => location.hash), '#/settings');
+    assert.equal((await dbAll(page, 'words')).length, 1);
+
+    // 창을 ✕로 닫은 뒤의 뒤로 가기는 바로 이전 화면으로 간다
+    await go(page, '#/vocab', '.vocab-item');
+    await page.locator('.vocab-item').first().click();
+    await page.locator('.sheet').waitFor();
+    await page.locator('.sheet-close').click();
+    await page.waitForFunction(() => !document.querySelector('.sheet') && !history.state?.overlay);
+    await page.goBack();
+    await page.waitForSelector('.settings');
+
+    // 창 안의 "기사 보기" 링크: 창이 닫히고 그 기사로 간다. 뒤로 가면 단어장이다.
+    await go(page, '#/vocab', '.vocab-item');
+    await page.locator('.vocab-item').first().click();
+    await page.locator('.sheet a', { hasText: '기사 보기' }).click();
+    await waitDate(page, '2026-11-10');
+    await page.waitForFunction(() => !document.querySelector('.sheet'));
+    await page.goBack();
+    await page.waitForSelector('.vocab-item');
+    assert.equal(await page.locator('.sheet').count(), 0);
+
+    // 스크롤 위치: 기사를 내려 읽다가 다른 화면에 다녀오면 보던 자리로 돌아온다
+    await go(page, '#/today', '.article');
+    await page.evaluate(() => window.scrollTo(0, 700));
+    await page.locator('#tabs a[data-tab="settings"]').click(); // 탭은 화면에 고정돼 있어 누를 때 스크롤이 바뀌지 않는다
+    await page.waitForSelector('.settings');
+    assert.equal(await scrollY(page), 0, '새로 연 화면은 맨 위에서 시작');
+    await page.goBack();
+    await page.waitForSelector('.article');
+    await page.waitForFunction(() => Math.abs(window.scrollY - 700) < 5);
+
+    // 보고 있는 탭을 다시 누르면 맨 위로
+    await page.locator('#tabs a[data-tab="today"]').click();
+    await page.waitForFunction(() => window.scrollY === 0);
+    assert.equal(await page.evaluate(() => location.hash), '#/today');
+    assert.deepEqual(problems, []);
+  });
+
+  test('제스처: 뜻 창을 아래로 끌어내리면 닫히고, 조금만 내리면 제자리로 돌아온다', async () => {
+    const { page, problems } = await open({ time: TUE_NOON });
+    await page.waitForSelector('.article');
+    await page.locator('.w', { hasText: /^curve$/ }).click();
+    await page.locator('.sheet').waitFor();
+    await settle(page);
+    const box = await page.locator('.sheet').boundingBox();
+    const x = box.x + box.width / 2;
+
+    await drag(page, { x, y: box.y + 14 }, { x, y: box.y + 54 }, { stepMs: 40 });
+    await page.waitForFunction(() => document.querySelector('.sheet')?.style.transform === '');
+    assert.equal(await page.locator('.sheet').count(), 1, '조금 내리면 닫히지 않는다');
+
+    await settle(page);
+    await drag(page, { x, y: box.y + 14 }, { x, y: box.y + 220 });
+    await page.waitForFunction(() => !document.querySelector('.sheet'));
+    assert.equal(await page.evaluate(() => document.body.classList.contains('no-scroll')), false);
+    await page.waitForFunction(() => !history.state?.overlay);
+    assert.equal(await page.locator('.w.sel').count(), 0, '닫히면 단어 강조도 풀린다');
+    assert.deepEqual(problems, []);
+  });
+
+  test('제스처: 복습 카드는 눌러서 뜻을 보고, 오른쪽으로 밀면 알맞음, 왼쪽으로 밀면 다시', async () => {
+    const { page, problems } = await open();
+    await page.waitForSelector('.article');
+    await saveFromArticle(page, 'raised');
+    await page.clock.fastForward(1000);
+    await saveFromArticle(page, 'inflation');
+    await go(page, '#/review', '.review-card');
+    const center = async () => {
+      const b = await page.locator('.review-card').boundingBox();
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    };
+
+    // 뜻을 보기 전에는 밀어도 평가되지 않는다
+    let c = await center();
+    await drag(page, { x: c.x - 60, y: c.y }, { x: c.x + 120, y: c.y });
+    assert.equal((await dbAll(page, 'reviewLogs')).length, 0);
+    assert.equal(await page.locator('.ratings').count(), 0);
+
+    // 카드를 누르면 뜻이 보인다
+    await page.locator('.review-card .rc-word').tap();
+    await page.locator('.ratings').waitFor();
+    assert.equal(await page.locator('.rc-ko').innerText(), '올리다, 인상하다');
+    assert.equal(await page.locator('.review .swipe-tip').isVisible(), true, '터치 기기에서는 밀기 안내가 보인다');
+
+    // 조금 밀다 말면 그대로
+    c = await center();
+    await drag(page, { x: c.x, y: c.y }, { x: c.x + 45, y: c.y }, { stepMs: 40 });
+    await page.waitForFunction(() => document.querySelector('.review-card').style.transform === '');
+    assert.equal((await dbAll(page, 'reviewLogs')).length, 0);
+
+    // 오른쪽으로 밀기 → 알맞음(3)
+    await drag(page, { x: c.x - 60, y: c.y }, { x: c.x + 120, y: c.y });
+    await page.locator('.review-card:not(.revealed) .rc-word', { hasText: 'inflation' }).waitFor();
+    let logs = await dbAll(page, 'reviewLogs');
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0].rating, 3);
+    assert.equal(logs[0].wordId, 'raise');
+
+    // 왼쪽으로 밀기 → 다시(1)
+    await page.locator('.review-card .rc-word').tap();
+    await page.locator('.ratings').waitFor();
+    c = await center();
+    await drag(page, { x: c.x + 60, y: c.y }, { x: c.x - 120, y: c.y });
+    await page.waitForFunction(() => document.querySelector('.review-card:not(.revealed)'));
+    logs = await dbAll(page, 'reviewLogs');
+    assert.equal(logs.length, 2);
+    assert.deepEqual(logs.map((l) => [l.wordId, l.rating]).sort(), [['inflation', 1], ['raise', 3]].sort());
+
+    // 되돌리기는 그대로 동작한다
+    await page.locator('button', { hasText: '방금 평가 되돌리기' }).click();
+    await page.locator('.toast', { hasText: '되돌렸어요' }).waitFor();
+    assert.equal((await dbAll(page, 'reviewLogs')).length, 1);
+    await noOverflow(page, '복습');
+    assert.deepEqual(problems, []);
+  });
+
+  test('제스처: 단어장에서 왼쪽으로 밀면 지워지고 되돌릴 수 있다. 길게 누르면 메뉴가 뜬다', async () => {
+    const { page, problems } = await open();
+    await page.waitForSelector('.article');
+    await saveFromArticle(page, 'raised');
+    await page.clock.fastForward(1000);
+    await saveFromArticle(page, 'inflation');
+    await go(page, '#/vocab', '.vocab-item');
+    const rowOf = async (text) => {
+      const b = await page.locator('.vocab-item', { hasText: text }).boundingBox();
+      return { left: b.x, right: b.x + b.width, y: b.y + b.height / 2 };
+    };
+    const before = await dbAll(page, 'words');
+
+    // 세로로 밀면(스크롤) 아무것도 지워지지 않는다
+    let r = await rowOf('inflation');
+    await drag(page, { x: 200, y: r.y }, { x: 210, y: r.y - 120 });
+    assert.equal((await dbAll(page, 'words')).length, 2);
+
+    // 조금 밀다 말면 그대로
+    await drag(page, { x: r.right - 60, y: r.y }, { x: r.right - 110, y: r.y }, { stepMs: 40 });
+    await page.waitForFunction(() => !document.querySelector('.vocab-list li.swiping'));
+    assert.equal((await dbAll(page, 'words')).length, 2);
+
+    // 왼쪽으로 끝까지 밀기 → 지우기 + 되돌리기
+    r = await rowOf('inflation');
+    await drag(page, { x: r.right - 50, y: r.y }, { x: r.right - 260, y: r.y });
+    await page.locator('.vocab-item', { hasText: 'inflation' }).waitFor({ state: 'detached' });
+    assert.deepEqual((await dbAll(page, 'words')).map((w) => w.id), ['raise']);
+    assert.equal(await page.locator('.dialog').count(), 0, '확인 창 없이 지운다');
+    await page.locator('.toast-action', { hasText: '되돌리기' }).tap();
+    await page.locator('.vocab-item', { hasText: 'inflation' }).waitFor();
+    assert.deepEqual(await dbAll(page, 'words'), before, '되돌리면 지우기 전과 똑같다');
+
+    // 길게 누르기 → 메뉴. 손을 뗄 때 상세 창이 대신 열리지 않는다
+    r = await rowOf('raise');
+    const p = { x: r.left + 80, y: r.y };
+    await drag(page, p, p, { steps: 1, holdMs: 650 });
+    await page.locator('.action-sheet').waitFor();
+    assert.match(await page.locator('.action-sheet').innerText(), /raise[\s\S]*발음 듣기[\s\S]*자세히 보기[\s\S]*뜻·예문 수정[\s\S]*단어장에서 지우기/);
+    assert.equal(await page.locator('.sheet').count(), 1);
+    assert.deepEqual(await smallTargets(page, '.sheet'), [], '메뉴 항목도 48px 이상');
+    await page.locator('.action-item', { hasText: '발음 듣기' }).tap();
+    await page.waitForFunction(() => window.__spoken.some((s) => s.text === 'raise'));
+    assert.equal(await page.locator('.action-sheet').count(), 1, '발음 듣기는 메뉴를 닫지 않는다');
+    await page.locator('.action-item', { hasText: '뜻·예문 수정' }).tap();
+    await page.locator('.sheet input[aria-label="뜻"]').waitFor();
+    assert.equal(await page.locator('.sheet').count(), 1);
+    await page.goBack();
+    await page.waitForFunction(() => !document.querySelector('.sheet'));
+    assert.equal(await page.evaluate(() => location.hash), '#/vocab');
+
+    // 메뉴에서 지우기
+    await drag(page, p, p, { steps: 1, holdMs: 650 });
+    await page.locator('.action-item.danger').tap();
+    await page.locator('.vocab-item', { hasText: 'raise' }).waitFor({ state: 'detached' });
+    assert.deepEqual((await dbAll(page, 'words')).map((w) => w.id), ['inflation']);
+    await noOverflow(page, '단어장');
+    assert.deepEqual(problems, []);
+  });
+
+  test('제스처: 지난 기사 목록과 오늘 화면을 아래로 당기면 새로 받는다. 살짝 당기면 아무 일도 없다', async () => {
+    const { page, problems } = await open({ time: TUE_NOON, hash: '#/archive' });
+    await page.waitForSelector('.archive-item');
+    let requests = 0;
+    page.on('request', (rq) => rq.url().endsWith('articles/index.json') && requests++);
+
+    await drag(page, { x: 200, y: 200 }, { x: 205, y: 260 }, { stepMs: 30 });
+    await page.waitForFunction(() => document.querySelector('.ptr').style.opacity === '0');
+    assert.equal(requests, 0, '살짝 당기면 새로 받지 않는다');
+
+    await drag(page, { x: 200, y: 200 }, { x: 205, y: 460 }, { steps: 12 });
+    await page.locator('.toast', { hasText: '목록을 새로 받았어요' }).waitFor();
+    assert.equal(requests, 1);
+    await page.waitForFunction(() => !document.querySelector('.ptr.busy'));
+    assert.equal(await page.locator('.archive-item').count(), 3);
+
+    await go(page, '#/today', '.article');
+    assert.equal(await page.locator('.ptr').count(), 1, '화면을 떠나면 이전 화면의 표시는 지워진다');
+    await drag(page, { x: 200, y: 300 }, { x: 205, y: 560 }, { steps: 12 });
+    await page.locator('.toast', { hasText: '최신 기사예요' }).waitFor();
+    assert.equal(await shownDate(page), '2026-11-10');
+    assert.deepEqual(problems, []);
+  });
+
+  test('가로로 눕힌 폰(844×390): 넘치는 화면이 없고 탭과 버튼이 48px 이상이다', async () => {
+    const { page, problems } = await open({ viewport: { width: 740, height: 360 } });
+    await page.waitForSelector('.article');
+    await fillSomeData(page);
+    for (const [hash, sel] of SCREENS) {
+      await go(page, hash, sel);
+      await noOverflow(page, `가로 ${hash}`);
+      assert.deepEqual(await smallTargets(page, '#view, #tabs, #banners'), [], `${hash}: 48px보다 작은 터치 대상`);
+    }
+    assert.equal(await page.locator('#tabs').evaluate((el) => Math.round(el.getBoundingClientRect().height)), 49, '탭이 낮아진다');
+    await go(page, '#/today', '.article');
+    await page.locator('.w', { hasText: /^curve$/ }).click();
+    await page.locator('.sheet').waitFor();
+    await settle(page);
+    const fits = await page.locator('.sheet').evaluate((el) => el.getBoundingClientRect().top >= 0 && el.getBoundingClientRect().bottom <= window.innerHeight + 1);
+    assert.equal(fits, true, '뜻 창이 화면 안에 들어온다');
     assert.deepEqual(problems, []);
   });
 
@@ -1376,13 +1718,13 @@ describe('Daily English Reader 스모크 테스트', { skip: chromium ? false : 
 
       // 새 배포: 앱 이름을 바꾸고 캐시 버전을 올린다
       const version = await readFile(join(dir, 'js/version.js'), 'utf8');
-      await writeFile(join(dir, 'js/version.js'), version.replace("APP_VERSION = '1.0.0'", "APP_VERSION = '9.9.9'"));
+      await writeFile(join(dir, 'js/version.js'), version.replace(/APP_VERSION = '[^']+'/, "APP_VERSION = '9.9.9'"));
       await writeFile(join(dir, 'sw.js'), swText.replace(oldVersion, '9.9.9-testtest'));
 
       await go(page, '#/settings', '.settings');
       await page.locator('button', { hasText: '업데이트 확인' }).click();
       await page.locator('#banner-update').waitFor();
-      assert.match(await page.locator('.settings').innerText(), /Daily English Reader 1\.0\.0/, '새로고침 전에는 이전 버전 그대로');
+      assert.ok((await page.locator('.settings').innerText()).includes(`Daily English Reader ${APP_VERSION}`), '새로고침 전에는 이전 버전 그대로');
       await page.locator('.dialog button', { hasText: '취소' }).click();
 
       await Promise.all([page.waitForNavigation(), page.locator('#banner-update button', { hasText: '새로고침' }).click()]);

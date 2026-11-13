@@ -14,6 +14,7 @@ export const DEFAULTS = Object.freeze({
   newPerDay: 20, // 하루에 새로 배우는 단어 수
   retention: 0.9, // 목표 기억률 (FSRS request_retention)
   reviewMode: 'en-ko', // 'en-ko'(영→한) | 'ko-en'(한→영)
+  haptics: true, // 밀기·길게 누르기에 짧은 진동 (지원하는 기기에서만)
   lastBackupAt: null, // 마지막으로 백업을 내보낸 시각
   iosHintDismissedAt: null, // iPhone 설치 안내를 닫은 시각
   installHintDismissedAt: null, // Android/PC 설치 안내를 닫은 시각
@@ -48,6 +49,8 @@ function sanitize(key, value) {
       return value === 'ko-en' ? 'ko-en' : 'en-ko';
     case 'showTranslation':
       return Boolean(value);
+    case 'haptics':
+      return value !== false;
     case 'ttsVoice':
       return typeof value === 'string' ? value : d;
     default:
